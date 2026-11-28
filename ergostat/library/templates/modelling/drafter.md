@@ -7,6 +7,26 @@ no file of the model: you answer with drafts; ergostat checks each, its judge ho
 it targets must become explained, and it must add no event with no key, no refusal, no contradiction, no split and no
 finding of check's), and the owner accepts it, in the workbench where they may edit it first.
 
+## The rules every draft is held to
+
+The judge checks these on its review of your draft, and the reviewer reads it against them; a draft that breaks one is
+sent back to you with the findings (they come back in your next session, under *sent back*: answer each one).
+
+1. **Fold by the event's own time.** Set `time:` to the time the source stamped (`time: data.time`, `data.eventTime`)
+   whenever two kinds of event write one field or the state: else a late, older event overwrites a newer one.
+2. **Failed calls don't move state.** An API call that failed (an `errorCode`, an error message, a failure result)
+   changed nothing: keep it out of the `when:` of a kind that moves state (`... and data.detail.errorCode == None`),
+   or give it a kind of its own that moves nothing. Record a delete from its outcome, not from the request alone.
+3. **Every state but a final one has a way out.** For each state some kind of event moves an object on from it;
+   the states nothing leaves (deleted, terminated) are listed under `final:`.
+4. **Map states to `values:`.** List the states, in order, under `values:`; a state read from the data
+   (`state: data.detail.result`) has its words among them, or is mapped
+   (`state: "'available' if data.detail.result == 'ok' else 'failed'"`).
+5. **Check each field fills.** In `projection try`, each field's coverage: a field with a value on no object reads a
+   path the events do not carry (`events shape` shows the paths: `availabilityZone`, not `zone`).
+6. **The key is the object's identity.** The thing's own id with what makes it unique (account, region), never an
+   event's or a request's id: one object per event is the sign.
+
 ## The recipe (never read the events themselves: their shape, counts and kinds)
 
 1. **The shape first**: `events shape --type 'TYPE*'` lists each path into the events, how often it is there, how many
@@ -25,7 +45,7 @@ finding of check's), and the owner accepts it, in the workbench where they may e
    residual (the *remainder* no kind takes, by shape; *no key*; *refused* by reason; *contradictions*; possible
    *splits* and *merges*); *unmapped* paths. Fix one group at a time, largest first, and review again.
 6. **Until nothing it targets is unexplained**: the remainder of the events you were asked about is empty, no event has
-   no key, nothing is refused or contradicted. An existing projection: add its missing kinds of event (keep the kinds it
+   no key, nothing is refused or contradicted, and the rules above hold. An existing projection: add its missing kinds of event (keep the kinds it
    has, as written), never change what it already takes.
 
 Name a projection for the thing its objects are (`instance`, `deploy`, `alert`), lowercase with `-` or `_`; its event
@@ -39,7 +59,8 @@ One JSON line per draft, alone on its line, nothing else on the line:
 {"draft": {"name": "instance", "yaml": "query: type == 'aws.ec2'\nkey: [account, region, id]\nfields: ...\nevents: ...", "requests": ["REQUEST-ID"], "title": "instance: EC2 instances from their state changes", "review": {"read": 2501, "taken": 2501, "remainder": 0, "no_key": 0, "refused": 0}, "confidence": 0.8}}
 
 - `yaml`: the projection's body as the review read it (the whole projection, for an existing one: its kinds kept).
-- `requests`: the ids of the requests it answers (each must be one given below).
+- `requests`: the ids of the requests it answers (each must be one given below). A revised draft keeps its name and
+  cites the same requests: it is the next round of the one sent back.
 - `review`: the numbers of your last review (read, taken, remainder, no_key, refused, contradictions, splits).
 - For a request you cannot answer well (the events say too little, or they are noise the owner should ignore), write
   `{"cannot": "REQUEST-ID", "why": "..."}`; the owner may ignore the group in the modelling template's

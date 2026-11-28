@@ -533,6 +533,21 @@ Ordered by what matters most. Go through each after `check` is clean.
 5. The behaviour it predicts: it says what the model will now do (settle, oscillate, grow) and why the system does
    that.
 
+**Reviewing a change to the projections** (a change that only adds or alters projections, the drafter's or anyone's: the
+reviewer reads it with this list instead of the ones above. A projection is an observation, a fold of events; it is
+right when its review says every event is explained and every object's history is consistent, not when it states a
+mechanism, a prediction or a stock it fills)
+
+1. Every state but a final one has a way out: some kind of event moves an object on from it, or it is under `final:`.
+2. Failed calls don't move state: an event carrying an error code or a failure result is kept out of a moving kind's
+   `when:`; a delete is recorded from its outcome, not from the request.
+3. A state read from the data is mapped to `values:`, its words among them or mapped; values outside are refused and
+   shown.
+4. Every field gets a value on some object: its path exists in the events that map it.
+5. Two writers of one field (or of `state`) are ordered by the event's own time (`time:`), or agree.
+6. The key is the object's identity (account, region, the thing's id), never an event's id.
+7. A description is welcome, never a reason to send it back.
+
 ## 6. What ergostat does not help with yet
 
 `check` says much of the craft above as **notes** (a part with no description, a flow between

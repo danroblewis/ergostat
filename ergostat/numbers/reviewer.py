@@ -89,18 +89,93 @@ def author(spec: Spec, x: dict) -> str | None:
     return None if by in (None, "ergostat", "owner") or (b is not None and b.type not in ("ai", "person")) else by
 
 
-def prompt(p, spec: Spec, x: dict) -> str:
+DYNAMICS, PROJECTIONS = "<!-- dynamics", "<!-- projections"
+WELL_PROJECTIONS = "**Reviewing a change to the projections**"
+
+
+def projections_only(p, spec: Spec, x: dict) -> list[str]:
+    """The projections a change adds or alters, when that is all it changes (no stock, flow, link, parameter, goal,
+    block or sensor): reviewed by the projection checklist, not the stocks-and-flows one. Empty otherwise."""
+    from . import trial as tr
+    from . import unexplained as ux
+    from . import version as ver
+    if x.get("redesign"):
+        return []
+    if x.get("explains") and x.get("projections_changed"):      # the drafter's (unexplained.proposal_of): only those
+        return list(x["projections_changed"])
+    try:
+        after = tr.spec_after(p, tr.edits_of(x))
+    except Exception:
+        return []
+    names = ux.changed_projections(spec, after)
+    if not names or ver.version(spec) != ver.version(after) or ver.control(spec) != ver.control(after) \
+            or ver.changed_sensors(spec, after):
+        return []
+    return names
+
+
+def guide(projections: bool) -> str:
+    """reviewer.md's head, and the part for the change's kind: a change to the projections alone, or any other."""
+    text = GUIDE.read_text(encoding="utf-8")
+    a, b = text.find(DYNAMICS), text.find(PROJECTIONS)
+    if a < 0 or b < 0:
+        return text
+    head = text[:a].rstrip()
+    part = text[b:] if projections else text[a:b]
+    return head + "\n\n" + part.split("\n", 1)[1].strip()
+
+
+def checklists(projections: bool) -> str:
+    """MODELLING-WELL's review checklists: for a change to the projections alone, its projection checklist; for any
+    other, the rest of them."""
     from .. import helpdocs
-    from . import modeller as md
     from . import redesigner as rdr
     well = rdr._sections(helpdocs.read("modelling-well") or "", ("5. Review checklists",))
+    at = well.find(WELL_PROJECTIONS)
+    if at < 0:
+        return "" if projections else well
+    end = well.find("\n**", at + len(WELL_PROJECTIONS))
+    end = len(well) if end < 0 else end
+    return well[at:end].strip() if projections else (well[:at] + well[end:]).strip()
+
+
+def evidence(x: dict, names: list[str]) -> list[str]:
+    """The judge's review of each projection the change adds or alters (its numbers, its fields' coverage, its states,
+    its mechanical findings), as prompt lines."""
+    ev = (x.get("verdict") or {}).get("evidence") or {}
+    out = []
+    if ev.get("targeted"):
+        out.append("targeted: " + json.dumps(ev["targeted"]))
+    for n in names:
+        got = (ev.get("projections") or {}).get(n) or {}
+        if got.get("after"):
+            out += [f"### {n}", "", "```json", json.dumps(got["after"], ensure_ascii=False, default=str)[:6000], "```"]
+            if got.get("before"):
+                out.append("before the change: " + json.dumps({k: v for k, v in got["before"].items()
+                                                                if not isinstance(v, (dict, list))}))
+    if ev.get("findings"):
+        out += ["", "The judge's findings (mechanical, from the numbers above):", ""]
+        out += [f"- {g.get('projection')}: {g.get('level')} {g.get('check')}: {g.get('says')}" for g in ev["findings"]]
+    return out or ["(the judge's review of it is not recorded)"]
+
+
+def prompt(p, spec: Spec, x: dict) -> str:
+    from . import modeller as md
+    names = projections_only(p, spec, x)
     change = {k: x.get(k) for k in ("title", "kind", "made_by", "parts", "reasons", "confidence", "summary", "system",
                                     "predicted", "findings") if x.get(k)}
     change["judged"] = (x.get("verdict") or {}).get("why")
     if x.get("redesign"):
         change["edits"] = [{"edit": e.get("said") or e.get("edit"), "why": e.get("why")} for e in x["redesign"].get("edits") or []]
-    lines = [GUIDE.read_text(encoding="utf-8"), "", well, "", "## The change", "", json.dumps(change, ensure_ascii=False, default=str),
-             "", "## Its diff", "", "```diff", str((x.get("edit") or {}).get("diff") or "")[:8000], "```", "", "## The model near it", ""]
+    lines = [guide(bool(names)), "", checklists(bool(names)), "", "## The change", "",
+             json.dumps(change, ensure_ascii=False, default=str),
+             "", "## Its diff", "", "```diff", str((x.get("edit") or {}).get("diff") or "")[:8000], "```", ""]
+    if names:
+        lines += ["## Its review (the judge's, over the record)", "", *evidence(x, names), ""]
+        for n in names:
+            if body := (x.get("drafted") or {}).get(n):
+                lines += [f"## The projection {n} as drafted", "", "```yaml", str(body)[:8000], "```", ""]
+    lines += ["## The model near it", ""]
     for ref in md.neighbourhood(spec, list(x.get("parts") or []))[:25]:
         if t := md._text_of(spec, ref):
             lines += ["```yaml", t, "```"]
@@ -166,15 +241,16 @@ def _record(p, spec: Spec, x: dict, got: dict, by: str, cost: float, now: float 
     return verdict
 
 
-def asked(p, by: str, parts, system: str | None = None) -> dict:
-    """What a new proposal by ``by`` on these parts (a redesign: of this system) carries, when the reviewer sent back one
-    of its own on them that no later proposal has answered: ``{"revising", "review_round", "review_asked"}``, else
-    nothing."""
+def asked(p, by: str, parts, system: str | None = None, explains=None) -> dict:
+    """What a new proposal by ``by`` on these parts (a redesign: of this system; a drafted projection: for these event
+    requests, ``explains``) carries, when the reviewer sent back one of its own on them that no later proposal has
+    answered: ``{"revising", "review_round", "review_asked"}``, else nothing."""
     now = time.time()
     sent = sorted(((pid, f) for pid, (st, f) in pr.changes(p).items()
                    if (f.get("review") or {}).get("verdict") == "revise" and f.get("made_by") == by
                    and now - float(f["review"].get("at") or 0) <= DAY
-                   and (set(f.get("parts") or []) & set(parts or []) or (system and f.get("system") == system))),
+                   and (set(f.get("parts") or []) & set(parts or []) or (system and f.get("system") == system)
+                        or set(f.get("explains") or []) & set(explains or []))),
                   key=lambda kv: -float(kv[1]["review"].get("at") or 0))
     if not sent:                                # every revise on these parts counts, whatever became of the next round
         return {}

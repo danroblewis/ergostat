@@ -518,6 +518,19 @@ def cmd_discover(args) -> int:
     return 0
 
 
+def said_lines(p, rel, most: int = 3) -> list[str]:
+    """The last lines a run wrote to its own log (its standard error) that are not JSON: what a block says of a run that
+    moved nothing (``nothing to draft: ...``)."""
+    if not rel:
+        return []
+    try:
+        text = (Path(p.dir) / str(rel)).read_text(encoding="utf-8", errors="replace")[-8000:]
+    except OSError:
+        return []
+    lines = [x.strip() for x in text.splitlines() if x.strip() and not x.strip().startswith(("{", "["))]
+    return [x[:300] for x in lines[-most:]]
+
+
 def run_now(p, b, args) -> int:
     """``ergostat block NAME --now [--command N]``: one run, at once, recorded like any other: what
     it was given, and what it said."""
@@ -556,6 +569,9 @@ def run_now(p, b, args) -> int:
              ": moved nothing") + (f" ({d['note']})" if d.get("note") else ""))
     for r in p.events.query(n=5, item=b.name, type="agent.refused", since=last[-1]["time"] - 60 if last else None):
         print(c(f"refused: {r['data']['why']}", "warn"))
+    if not moved:                                         # why it did nothing: what it said in its log
+        for line in said_lines(p, d.get("log")):
+            print(f"said: {line}")
     from ..runner import log_path
     print(c(f"its log: {log_path(p, b.name)}", "dim"))
     return 1 if last and last[-1]["type"] == "agent.failed" else 0

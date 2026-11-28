@@ -1495,7 +1495,14 @@ write the projections yourself:
 3. **Accept them**: the judge passes a draft only when the events it targets become explained and it adds no event
    with no key, no refusal, contradiction, split or finding; it then waits for the owner in the inbox (`ergostat
    inbox`), with a link to open it in the workbench and edit it before saving, or to accept it as it is. Events you do
-   not mean to model are ignored in the template's `with: ignore-events: ['debug.*']`.
+   not mean to model are ignored in the template's `with: ignore-events: ['debug.*']`. With the reviewer on, it reads
+   a draft first, with the projection checklist (a projection is an observation: never asked for a mechanism, a
+   prediction or a stock): every non-final state has a way out, failed calls (an `errorCode`) do not move state, states
+   are mapped to `values:`, every field fills on some object, two writers of one field are ordered by `time:`, the key
+   is the thing's identity. The judge checks the mechanical ones itself on its review (a field no event fills fails the
+   draft). A draft sent back returns to the drafter with the findings, and its next one is the second round; a group
+   tried twice is held for you. `ergostat inbox --requests` lists the modelling requests waiting, held ones first, each
+   with why.
 4. **Then the goals**: the projections make stocks and flows (their states counted); write the goals on them, and the
    blocks that hold them.
 

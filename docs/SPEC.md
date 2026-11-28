@@ -7975,15 +7975,34 @@ the goals on the stocks they make.
   ergostat.model-change/ID` (a projection has no `inferred:` key: the comment says it was drafted, not declared; one
   the owner saves from the workbench is the owner's, and says nothing). Its cost counts in `ai-daily` with the AI
   tier's (`modeller_spend`): a session starts only when the day's spend plus its whole `draft-budget` stays within it;
-  one that fails is charged its budget. A request tried twice waits for the owner (approve hands it back to the
-  drafter). The stand-in for tests is `ERGOSTAT_AI`, as the modeller's.
+  one that fails is charged its budget. A request tried twice waits for the owner: the run holds it (`owner`, "the
+  drafter tried it N times; its last draft: ..."), so it is in the inbox, and approve hands it back to the drafter. Its
+  prompt puts the rules every draft is held to first (fold by the event's own time with `time:`; failed calls do not
+  move state; every non-final state has a way out; states mapped to `values:`; each field fills on the events; the key
+  is the object's identity), and, for each request, its latest draft that did not get through (*sent back*: the
+  reviewer's revise or reject, the judge's fail or warnings, with the findings and the body as drafted), which it
+  revises: a revised draft cites the same requests and is the reviewer's second round (`reviewer.asked` matches a
+  drafted projection by the requests it explains, since a new projection has no part yet). A run with nothing to draft
+  says why in its log: no events wait, or each group has a draft waiting for the judge, the reviewer or the owner, or is
+  held for the owner (tried N times); `ergostat block drafter --now` prints the run's last log lines (`said: ...`)
+  when it moved nothing, as for any block. The stand-in for tests is `ERGOSTAT_AI`, as the modeller's.
 - **The judge's rule for it** (`unexplained.judged`): a change citing event requests is judged on the record it reads,
   at once, not by a replay: applied beside the model, the newest 2,000 events of each group it cites (by their indexed
   type) are counted unexplained before and with it, and each projection it adds or changes is reviewed as the
   workbench reviews it (its residual) before and with it. It **passes** only when the unexplained events it targets
   fall and it adds no event with no key, no refused event, no contradiction, no split and no finding of check's; else
   it **fails**, saying which (its request is then held, with why). The verdict says `on: events`, its evidence (the
-  targeted counts and each projection's residual before and after) and `explained`.
+  targeted counts and each projection's residual before and after, with each field's coverage, each state field's
+  objects now and its moves) and `explained`. On the same review, at no AI cost, it finds what the numbers show
+  mechanically (`unexplained.projection_findings`, each `{projection, check, level, says}` in the evidence's
+  `findings`; only those the change adds): a declared field null on every object whose expressions read nothing on
+  any event that maps it (`fills`, a **fail**: it reads a path the events do not carry); and, as warnings that go with
+  a passed change to the reviewer and the owner (said in the verdict, "N for the reviewer"): such a field that events
+  do fill but something clears (`fills`), a state at least 3 objects entered and none ever left that is not `final:`,
+  `finished:` or `lost:` (`exit`), a kind of event that moves state on events carrying an error code or a failure
+  result while its `when:` says nothing of errors (`failed-calls`), a state set with no `values:` (`values`), one field
+  (or the state) written by two kinds with no `time:` (`time`), and a key that reads an event's or a request's id, or
+  makes nearly one object an event past 20 (`key`).
 - **Written by the owner.** A projection change is structure: by default (`accept`) it waits in the review queue and
   the inbox, read first by the reviewer when that is on. Its inbox entry and its page link to the workbench with the
   draft loaded (`/?workbench=NAME&proposal=ID`, read from `GET /api/proposal-draft`): the owner edits it there and
@@ -8100,7 +8119,7 @@ sense together. **Redesign** sits beside it (`docs/proposals/redesign.md`):
   missing loops* (§12p), by class over the interventions loop's window, the most hours blocked first: how many, their
   causes, how they were answered, the notes given with the answers (`inbox --note`, a person's report, a dismissal's
   reason; not only the owner's: a person block's report and whoever approved or denied an advised block's command
-  are read too, each note once), and the class's request from `ergostat inbox --requests` with its state and the note it was worked
+  are read too, each note once), and the class's request from `ergostat inbox --requests --made` with its state and the note it was worked
   on with (not its remedies: generic, they led haiku to add a goal and a controller for
   every class, and its change sets stopped compiling; `docs/redesign-bench.md`); a class is the system's when its block, or a part its cause names, is in it; at most 8, 2,500 characters.
   The guide says never to propose again what was dismissed or judged not better unless the record now answers the
@@ -8187,6 +8206,18 @@ named) once the judge has passed it, and before it is written or offered to the 
 `docs/MODELLING-WELL.md` (section 5, *Reviewing a change* first: the causal story, units and boundary, fitting noise,
 one coherent change, the behaviour it predicts), the change (its reasons, the judge's verdict, a redesign's edits with
 their whys), its diff and the model near it.
+
+**A change to the projections alone** (the drafter's, or anyone's that adds or alters projections and changes no
+stock, flow, link, parameter, goal, block or sensor: `reviewer.projections_only`) is read with the projection checklist
+instead (reviewer.md's part for it, and MODELLING-WELL §5 *Reviewing a change to the projections*): a projection is an
+observation, a fold of events, right when its review says every event is explained and every object's history is
+consistent, so it is never asked for a mechanism, a prediction, a stock it fills, a lease or a drawing. It checks that
+every state but a final one has a way out, failed calls do not move state, a state read from the data is mapped to
+`values:`, every field gets a value on some object, two writers of one field are ordered by `time:` or agree, and the
+key is the object's identity; a missing description is never a reason to send it back. Its evidence is the judge's
+review of each projection (the counts, the fields' coverage and commonest values, the states and their moves, the
+judge's findings) and the body as drafted. Its findings' checks are `exit`, `failed-calls`, `values`, `fills`, `time`
+and `key`.
 
 | Verdict | Recorded | What happens |
 |---|---|---|
@@ -9724,7 +9755,7 @@ drawn in all three views like the modelling loop:
   `open-requests` (open, investing, verifying), `suppressed-requests` (and back to open when the guard is put back),
   `resolved-requests` (and back to open when the class intervenes again).
 - *Blocks:* the goal `interventions-falling` holds the trend at or under 0 (a steady load holds; a rise the record
-  shows does not), and the controller `remedies` (a program on ergostat's own command, `ergostat inbox --requests`, on
+  shows does not), and the controller `remedies` (a program on ergostat's own command, `ergostat inbox --requests --made`, on
   its own clock, whatever the short-term rate).
 - *Process:* the requests move open → investing → verifying → resolved, or to suppressed and back.
 
@@ -9767,7 +9798,11 @@ SE its standard error (n days, residual variance over n − 2):
 the lower bound of the weekly slope, so the goal is off only on a rise the record shows beyond its noise (a flat
 Poisson load of 5 a day over 21 days is off about 3% of the time, not half of it). The planned rise of a class being worked on is
 removed from y_d while it is worked on, up to `invest-for`; after that it counts again, so investing cannot hide a
-class for good. The controller works the ranked classes whatever the trend says.
+class for good. The controller works the ranked classes whatever the trend says. Its pass is `ergostat inbox
+--requests --made` (and `--requests` in a block's run, `ERGOSTAT_RUN` set), printing how many it made; asked by a
+person, `ergostat inbox --requests [--since 1d]` instead lists the modelling requests waiting (the modelling
+subsystem's, held first, each with its state, what it is about, its tries and why; then the interventions loop's open
+ones), and runs nothing.
 
 **Alarm-management measures** (ISA-18.2, EEMUA 191), read by a sensor (`builtin:`), shown on the goal's panel (the
 loop's *Interventions*: the measures and the repeat offenders with their share, hours blocked and cause) and by

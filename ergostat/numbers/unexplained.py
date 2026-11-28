@@ -339,16 +339,140 @@ def changed_projections(before, after) -> list[str]:
 
 
 def residual_counts(p, kind) -> dict:
-    """The workbench's residual of a projection over its events (``workbench.residual``), as counts."""
+    """The workbench's residual of a projection over its events (``workbench.residual``), as counts; with what its
+    objects hold (``fields``: each field's coverage and commonest values; ``states``: each state field's objects now and
+    its moves) and the mechanical findings on them (``findings``: ``projection_findings``)."""
     from ..spec import workbench as wb
     q = kind.query.text if kind.query is not None else f"glob(key, {kind.id!r})"
     evs, _ = wb.events_for(p, q)
     items, by_key, took, remainder, unkeyed = wb.fold_all(kind, evs)
-    res = wb.residual(kind, items, by_key, took, remainder, unkeyed, wb.lifecycles(kind, list(items.values())))
-    return {"read": len(evs), "taken": sum(1 for v in took.values() if v is not None), "remainder": len(remainder),
-            "no_key": res["no_key"]["count"], "refused": res["refused"]["count"],
-            "contradictions": res["contradictions"]["count"], "splits": res["splits"]["count"],
-            "merges": res["merges"]["count"], "objects": len(items)}
+    objs = list(items.values())
+    lives = wb.lifecycles(kind, objs)
+    res = wb.residual(kind, items, by_key, took, remainder, unkeyed, lives)
+    fields = {r["field"]: {"have": r["have"], "objects": r["objects"], **({"top": r["top"][:3]} if r.get("top") else {})}
+              for r in wb.distributions(kind, objs)}
+    states = {f: {"values": lc.get("values"), "now": lc.get("now"),
+                  "moves": [[t["from"], t["to"], t["count"]] for t in lc.get("transitions") or []][:12]}
+              for f, lc in lives.items()}
+    got = {"read": len(evs), "taken": sum(1 for v in took.values() if v is not None), "remainder": len(remainder),
+           "no_key": res["no_key"]["count"], "refused": res["refused"]["count"],
+           "contradictions": res["contradictions"]["count"], "splits": res["splits"]["count"],
+           "merges": res["merges"]["count"], "objects": len(items), "fields": fields, "states": states}
+    got["findings"] = projection_findings(kind, evs, took, got)
+    return got
+
+
+FAILED = ("errorcode", "error_code", "errormessage", "error_message", "failurereason", "failure_reason")
+FAILURE_WORDS = {"failed", "failure", "error", "errored"}
+MANY = 3                    # objects left in a state none ever leaves, before it is said
+ONE_EACH = 20               # objects, each with about one event, past which the key may be an event's id
+
+
+def _failed(e: dict) -> str | None:
+    """The path that says the call an event records failed (an error code, a failure's reason, a result of failure)."""
+    def walk(v, path, depth):
+        if not isinstance(v, dict) or depth > 4:
+            return None
+        for k, x in v.items():
+            low = str(k).lower()
+            if low in FAILED and x not in (None, "", False):
+                return ".".join((*path, str(k)))
+            if low in ("result", "status", "outcome") and isinstance(x, str) and x.lower() in FAILURE_WORDS:
+                return ".".join((*path, str(k)))
+            if (got := walk(x, (*path, str(k)), depth + 1)) is not None:
+                return got
+        return None
+    return walk(e.get("data") if isinstance(e.get("data"), dict) else {}, ("data",), 0)
+
+
+def projection_findings(kind, evs: list[dict], took: dict, got: dict) -> list[dict]:
+    """What the review's numbers show mechanically wrong with a projection, each ``{check, says, level}``: ``fail`` when
+    it is clear (a field no event gives a value: it reads a path none has), ``warn`` for the reviewer and the owner to
+    weigh (a state entered and never left, failed calls moving state, a state with no ``values:``, two writers of one
+    field with no ``time:``, a key that looks like an event's id). Cheap: over the events the review already read."""
+    from ..spec.handlers import env_of, evaluate
+    out: list[dict] = []
+    if not got.get("objects"):
+        return out
+    declared = getattr(kind, "declared", None) or {}
+    kinds = {k.name: k for k in getattr(kind, "kinds", None) or []}
+    by_kind: dict[str, list[dict]] = {}
+    for e in evs:
+        if (kn := took.get(e["id"])) is not None:
+            by_kind.setdefault(kn, []).append(e)
+    # every field gets a value on some object: one null on every object reads a path no event has (a fail), or is
+    # cleared again by what follows (a warning)
+    for f, row in (got.get("fields") or {}).items():
+        if f not in declared or row.get("have") or getattr(declared[f], "expr", None):
+            continue
+        writers = [(kn, k.fields[f]) for kn, k in kinds.items() if f in k.fields]
+        if not writers:
+            continue
+        fills = sum(1 for kn, v in writers for e in by_kind.get(kn, [])[-500:]
+                    if evaluate(v, {**env_of(e, kind), "current": None}) is not None)
+        texts = ", ".join(dict.fromkeys(v.text for _, v in writers))[:120]
+        out.append({"check": "fills", "level": "fail",
+                    "says": f"{f} is null on every one of {got['objects']} objects: {texts} reads a path none of the "
+                            f"events that map it carries (events shape shows the paths they have)"} if not fills else
+                   {"check": "fills", "level": "warn",
+                    "says": f"{f} is null on every one of {got['objects']} objects, though {fills} events give it a "
+                            f"value: what follows them clears it"})
+    # every state but a final one has a way out
+    final = set(getattr(kind, "final", None) or {}) | set(getattr(kind, "finished", None) or []) \
+        | set(getattr(kind, "lost", None) or [])
+    for f, st in (got.get("states") or {}).items():
+        left = {m[0] for m in st.get("moves") or [] if m[0] is not None and m[0] != m[1]}
+        values = st.get("values") or []
+        for s, n in (st.get("now") or {}).items():
+            if s in final or s in left or n < MANY:
+                continue
+            out.append({"check": "exit", "level": "warn",
+                        "says": f"{f} {s!r}: {n} objects entered it and none ever left it, and it is not final: "
+                                + ("if it ends the object, declare it under final:" if values and s == values[-1] else
+                                   "what moves an object on from it? No kind of event does, in this record")})
+    # failed calls do not move state
+    for kn, k in kinds.items():
+        v = k.fields.get("state")
+        when = str(getattr(k.when, "text", "") or "").lower()
+        if v is None or "error" in when or "fail" in when:
+            continue
+        bad, path = 0, None
+        for e in by_kind.get(kn, [])[-2000:]:
+            if (w := _failed(e)) is None:
+                continue
+            to = evaluate(v, {**env_of(e, kind), "current": None})
+            if to is not None and str(to).lower() not in FAILURE_WORDS:
+                bad, path = bad + 1, path or w
+        if bad:
+            out.append({"check": "failed-calls", "level": "warn",
+                        "says": f"{kn} moves state on {bad} events whose {path} says the call failed: a failed call "
+                                f"changed nothing in the world; leave them out of its when: (or give them a kind of "
+                                f"event of their own that moves nothing)"})
+    # a state read from the data is mapped to values:
+    setters = [kn for kn, k in kinds.items() if "state" in k.fields]
+    if setters and not getattr(kind, "states", None):
+        out.append({"check": "values", "level": "warn",
+                    "says": f"state is set (by {', '.join(setters[:3])}) with no values:: whatever the data carries is "
+                            f"stored unchecked; list its states, in order, under values: (and map the source's words)"})
+    # two writers of one field are ordered by the event's own time
+    if getattr(kind, "own_time", None) is None:
+        for f in ["state", *sorted(declared)]:
+            writers = [kn for kn, k in kinds.items() if f in k.fields and by_kind.get(kn)]
+            if len(writers) >= 2 and f not in (getattr(kind, "key", None) or []):
+                out.append({"check": "time", "level": "warn",
+                            "says": f"{f} is written by {len(writers)} kinds of event ({', '.join(writers[:3])}) and the "
+                                    f"projection has no time:, so whichever arrives last wins; fold by the event's own "
+                                    f"time (time: the path of the time the source stamped)"})
+                break
+    # the key is the object's identity, not an event's
+    key_text = " ".join(v.text for k in kinds.values() for v in (k.key or [])).lower().replace("_", "")
+    one_each = got["objects"] >= ONE_EACH and got["objects"] >= 0.95 * max(1, int(got.get("taken") or 0))
+    if "eventid" in key_text or "requestid" in key_text or one_each:
+        out.append({"check": "key", "level": "warn",
+                    "says": f"{got['objects']} objects from {got.get('taken')} events: "
+                            + ("nearly every object has one event; is the key an event's id, not the thing's?" if one_each
+                               else "the key reads an event's (or a request's) id, not the thing's")})
+    return out
 
 
 WORSE = ("no_key", "refused", "contradictions", "splits")
@@ -379,7 +503,7 @@ def judged(p, x: dict, spec) -> tuple[str, str, dict]:
     from . import trial as tr
     after = tr.spec_after(p, tr.edits_of(x))
     t = targeted(p, spec, after, list(x.get("explains") or []))
-    ev: dict = {"targeted": t, "projections": {}}
+    ev: dict = {"targeted": t, "projections": {}, "findings": []}
     worse = []
     for n in changed_projections(spec, after):
         try:
@@ -398,6 +522,13 @@ def judged(p, x: dict, spec) -> tuple[str, str, dict]:
             was = int((b or {}).get(f) or 0)
             if a[f] > was:
                 worse.append(f"{n}: {a[f]} {f.replace('_', ' ')} (was {was})")
+        had = {(g["check"], g["says"].split(":")[0]) for g in (b or {}).get("findings") or []}
+        for g in a.get("findings") or []:            # the mechanical findings it adds: the clear ones fail it, the
+            if (g["check"], g["says"].split(":")[0]) in had:  # rest go with it to the reviewer and the owner
+                continue
+            ev["findings"].append({"projection": n, **g})
+            if g["level"] == "fail":
+                worse.append(f"{n}: {g['says']}"[:300])
     new = (x.get("findings") or {}).get("new") or []
     if new:
         worse.append(f"{len(new)} new finding{'s' if len(new) > 1 else ''} of check's ({', '.join(new[:3])})")
@@ -407,8 +538,10 @@ def judged(p, x: dict, spec) -> tuple[str, str, dict]:
         return "failed", f"{said}; but it adds " + "; ".join(worse[:4]), ev
     if fell <= 0:
         return "failed", f"{said}: it explains none of them", ev
+    warns = [g for g in ev["findings"] if g["level"] != "fail"]
     return "passed", f"{said}: it explains {fell}, and adds no event with no key, no refusal, contradiction, split " \
-                     f"or finding", ev
+                     f"or finding" + (f"; {len(warns)} for the reviewer: " + "; ".join(
+                         f"{g['projection']}: {g['says']}" for g in warns[:2]) if warns else ""), ev
 
 
 # ---- the drafter's edit: a draft put into the model

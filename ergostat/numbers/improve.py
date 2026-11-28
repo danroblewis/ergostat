@@ -843,7 +843,7 @@ def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None,
         x, err = None, None
         try:
             x = validate(p, spec, by, raw, data)
-            x.update(rv.asked(p, by, x.get("parts")))   # sent back by the reviewer: this is its next round
+            x.update(rv.asked(p, by, x.get("parts"), explains=x.get("explains")))   # sent back by the reviewer: its next round
             if x.get("review_held"):
                 raise ProposeError(x["review_held"])
             same = next((y for y in pr.stored(p).values() if y["id"] != pid and y.get("version") == made["version"] and

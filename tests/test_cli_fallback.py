@@ -296,13 +296,13 @@ def test_the_fallbacks_record_refuses_every_write_whatever_the_flags(tmp_path, c
                   lambda: p.measurements.add("s", 1.0)):
         with pytest.raises(goodmodel.ReadOnlyRecord):
             write()
-    monkeypatch.setattr(goodmodel, "ACTS", tuple(a for a in goodmodel.ACTS if a not in ("requests", "invest", "add")))
+    monkeypatch.setattr(goodmodel, "ACTS", tuple(a for a in goodmodel.ACTS if a not in ("requests", "made", "invest", "add")))
     capsys.readouterr()
     assert main(["-C", str(d), "event", "--add", "job.made", "--item", "job/3"]) == 2    # a flag the list missed
     assert "would write to the record" in capsys.readouterr().err
     from ergostat.inbox import interventions
     monkeypatch.setattr(interventions, "requests", lambda p, spec, now=None: p.events.add("model-request.opened"))
-    assert main(["-C", str(d), "inbox", "--requests"]) == 2
+    assert main(["-C", str(d), "inbox", "--requests", "--made"]) == 2
     assert "would write to the record" in capsys.readouterr().err
     assert [e["item"] for e in Project(p.model, p.dir, note=False).events.query(n=None, type="job.made")] == ["job/1"]
 

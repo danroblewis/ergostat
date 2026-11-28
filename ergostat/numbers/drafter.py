@@ -59,7 +59,88 @@ def prompt(p, spec, reqs: list[dict], scratch: Path) -> str:
                                  "first": u.get("first"), "last": u.get("last"), "examples": u.get("examples"),
                                  "why": u.get("by"), **({"why held": r["why"]} if r.get("why") else {})},
                                 default=str, ensure_ascii=False))
+    back = sent_back(p, reqs)
+    if back:
+        lines += ["", "## Your earlier drafts for these requests, sent back (revise each: answer every finding, keep "
+                  "what was right; a second send-back is a reject)", ""]
+        for b in back:
+            lines += [f"### {b['title']} (requests {', '.join(b['requests'])}): {b['how']}", ""]
+            lines += [f"- {f}" for f in b["findings"]]
+            for n, body in (b.get("drafted") or {}).items():
+                lines += ["", f"Its {n}, as you drafted it:", "", "```yaml", str(body)[:6000], "```"]
+            lines.append("")
     return "\n".join(lines)
+
+
+def sent_back(p, reqs: list[dict]) -> list[dict]:
+    """The latest change citing each of these requests that did not get through, when the reviewer sent it back or
+    rejected it, or the judge failed it, or passed it with findings: ``{title, requests, how, findings, drafted}``. What
+    the drafter's next draft answers."""
+    from . import proposals as pr
+    ids = {r["id"] for r in reqs}
+    latest: dict[str, tuple[str, str, dict]] = {}
+    for pid, (st, f) in pr.changes(p).items():
+        for i in set(f.get("explains") or []) & ids:
+            at = float(f.get("made") or f.get("created") or 0)
+            if i not in latest or at > float(latest[i][2].get("made") or latest[i][2].get("created") or 0):
+                latest[i] = (pid, st, f)
+    out, seen = [], set()
+    for i, (pid, st, f) in latest.items():
+        if pid in seen:
+            continue
+        review = f.get("review") or {}
+        v = f.get("verdict") or {}
+        judged = [f"{g.get('projection')}: {g.get('check')}: {g.get('says')}"
+                  for g in ((v.get("judged") or v).get("evidence") or {}).get("findings") or []]
+        if review.get("verdict") in ("revise", "reject"):
+            how = f"the reviewer said {review['verdict']}" + (f" ({review['summary']})" if review.get("summary") else "")
+            findings = [f"{g.get('check')}: {g.get('says')}" for g in review.get("findings") or []] + \
+                [f"(the judge's) {x}" for x in judged]
+        elif st == "failed":
+            how, findings = "the judge failed it", [str(v.get("why") or "")] + judged
+        elif st in ("refused", "superseded") and (f.get("why") or v.get("why")):
+            how, findings = st, [str(f.get("why") or v.get("why"))]
+        else:
+            continue
+        seen.add(pid)
+        out.append({"id": pid, "title": f.get("title") or pid, "requests": sorted(set(f.get("explains") or []) & ids),
+                    "how": how, "findings": [x for x in findings if x][:10], "drafted": f.get("drafted") or {}})
+    return out
+
+
+def idle(p) -> str:
+    """Why a run has nothing to draft, in one line: no events wait for a projection, or each group's draft waits for the
+    judge, the reviewer or the owner, or the group waits for the owner (tried out, or held)."""
+    from . import proposals as pr
+    from . import requests as rq
+    from . import reviewer as rv
+    from . import unexplained as ux
+    spec = p.model.spec
+    mine = [r for r in rq.current(p, ("open", "proposed", "held")) if r.get("source") == ux.SOURCE]
+    if not mine:
+        return "drafter: nothing to draft: no events wait for a projection"
+    live = {pid: (st, f) for pid, (st, f) in pr.changes(p).items() if st in rq.LIVE}
+    where: dict[str, int] = {}
+    for r in mine:
+        cites = [(st, f) for st, f in live.values() if r["id"] in (f.get("explains") or [])]
+        if cites:
+            st, f = cites[-1]
+            w = ("the judge" if st in ("checked", "testing") else "the reviewer" if rv.unread(spec, f)
+                 else "the owner (ergostat inbox)")
+            w = f"has a draft waiting for {w}"
+            where[w] = where.get(w, 0) + 1
+        elif r["state"] == "held":
+            n = int((r.get("tried") or {}).get("ai") or 0)
+            w = f"is held for the owner (tried {n} times)" if n >= TRIES else "is held for the owner" if r.get("owner") \
+                else "is held"
+            where[w] = where.get(w, 0) + 1
+        else:
+            w = f"is {r['state']}"
+            where[w] = where.get(w, 0) + 1
+    plural = {"has ": "have ", "is ": "are "}
+    return "drafter: nothing to draft: " + "; ".join(
+        f"{n} group{'s' if n > 1 else ''} " + (next((plural[k] + w[len(k):] for k in plural if w.startswith(k)), w)
+                                               if n > 1 else w) for w, n in where.items())
 
 
 def parse(text: str) -> tuple[list[dict], list[dict]]:
@@ -90,20 +171,18 @@ def run(p, model: str = "haiku", budget: float = 0.5, daily: float = 1.0, most: 
     from . import requests as rq
     from . import unexplained as ux
     spec = p.model.spec
+    for r in ux.open_requests(p):                       # tried out: the owner's, said so in the inbox
+        n = int((r.get("tried") or {}).get("ai") or 0)
+        if n >= TRIES and (r["state"] != "held" or not r.get("owner")):
+            last = sent_back(p, [r])
+            rq.mark(p, r, "held", f"the drafter tried it {n} times" + (
+                f"; its last draft: {last[0]['how']}: " + "; ".join(last[0]["findings"][:2]) if last else "")[:400],
+                owner=True)
     reqs = [r for r in ux.open_requests(p) if int((r.get("tried") or {}).get("ai") or 0) < TRIES]
     reqs = sorted(reqs, key=lambda r: -int((r.get("unexplained") or {}).get("count") or 0))[:most]
     out = {"proposed": [], "not_proposed": [], "cannot": [], "cost": {"usd": 0.0, "calls": 0}, "requests": len(reqs)}
     if not reqs:
-        from . import unexplained as ux_
-        mine = [r for r in rq.current(p, ("open", "proposed", "held")) if r.get("source") == ux_.SOURCE]
-        free = {r["id"] for r in rq.waiting(p, ("open", "proposed", "held"))}     # no change waiting cites it
-        waiting = [r for r in mine if r["id"] not in free]
-        owners = [r for r in mine if r["id"] in free]
-        out["said"] = ("drafter: nothing to draft: " + "; ".join(x for x in (
-            f"{len(waiting)} groups have a draft waiting for the owner (ergostat inbox, or the Fit page's review queue)"
-            if waiting else "",
-            f"{len(owners)} wait for the owner (tried {TRIES} times, or held)" if owners else "") if x)
-            if mine else "drafter: no events wait for a projection")
+        out["said"] = idle(p)
         return out
     scratch = Path(p.dir) / "modelling" / "drafts" / time.strftime("%Y%m%dT%H%M%S")
     scratch.mkdir(parents=True, exist_ok=True)

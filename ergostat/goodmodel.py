@@ -16,7 +16,7 @@ DIR, MANIFEST, OBJECTS = "good", "manifest.json", "objects"
 READS = {None, "status", "item", "why", "held-up", "event", "lease", "loop", "system", "explain", "findings", "residual", "fit", "claims",
          "messages", "agent", "block", "inbox", "stock", "flow", "valve", "sensor", "controller", "disturbance"}
 ACTS = ("add", "redrive", "renew", "nack", "check", "about", "reopen", "now", "done", "approve", "deny", "stop",
-        "restart", "check_warm", "opened", "read", "forget_above", "forget_below", "decided", "requests", "invest", "reset",
+        "restart", "check_warm", "opened", "read", "forget_above", "forget_below", "decided", "requests", "made", "invest", "reset",
         "revoke", "backfill")
 # a topic that mostly acts, with subcommands (its ``what``) that only read: only those run on the last good model
 READ_WHAT = {"remote": ("proposals",)}

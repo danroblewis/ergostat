@@ -74,11 +74,11 @@ def test_the_interventions_loop_is_drawn_in_all_three_views(tmp_path):
         g = api(live, "graph", {"view": [view], "open": ["*"]})
         names = " ".join(str(n.get("name") or n.get("id")) for n in g["nodes"])
         assert all(w in names for w in want), (view, names)
-    cli(["-C", str(tmp_path), "inbox", "--requests"])
+    cli(["-C", str(tmp_path), "inbox", "--requests", "--made"])
     seed(p, _)
     for _i in range(3):
         raise_alarm(p, time.time() - 3600 * (_i + 1))
-    assert cli(["-C", str(tmp_path), "inbox", "--requests"]) == 0
+    assert cli(["-C", str(tmp_path), "inbox", "--requests", "--made"]) == 0
     g = api(Live(Project(mdl.load(tmp_path))), "graph", {"view": ["process"], "since": ["1d"],
                                                                    "system": ["interventions"]})   # counted there
     assert MODEL_REQUEST in {k["name"] for k in g["projections"]}
@@ -100,7 +100,7 @@ def test_a_recurring_class_becomes_a_request_with_remedies_ranked_by_time_blocke
     assert "a goal and a controller on it only where something should act" in reqs["alarm:hot"]["remedies"][0]
     assert reqs["person:reviewer"]["remedies"][0].startswith("automate the person's step with a block")
     assert iv.requests(p, spec, now)["made"] == 0                                 # one request a class
-    assert cli(["-C", str(tmp_path), "inbox", "--requests"]) == 0 and capsys.readouterr().out.strip() == "0"
+    assert cli(["-C", str(tmp_path), "inbox", "--requests", "--made"]) == 0 and capsys.readouterr().out.strip() == "0"
 
 
 def test_removing_an_alarm_or_a_gate_is_suppression_and_does_not_lower_the_measure(tmp_path):

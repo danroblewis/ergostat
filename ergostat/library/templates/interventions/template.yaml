@@ -134,6 +134,6 @@ blocks:
     type: program
     goal: interventions-falling
     in: +stock.interventions-waiting
-    run: ${python} -m ergostat inbox --requests
+    run: ${python} -m ergostat inbox --requests --made
     every: ${every}
     out: flow.requests-made
