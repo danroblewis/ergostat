@@ -1,5 +1,5 @@
 """A sensor whose newest read failed is said where the owner looks: in /api/status (``sensors_failing``), on the
-attention list (waiting for the owner after a few reads in a row), and gone once it reads again. A command that
+attention list (a fault, never "for you": not a decision), and gone once it reads again. A command that
 prints nothing says so, and says that ``run:`` is /bin/sh's."""
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ def test_nothing_printed_is_said_with_the_shell_it_ran_in():
     assert v is None and why.endswith("'hello'")
 
 
-def test_a_failing_sensor_is_listed_and_waits_for_the_owner_after_three(tmp_path):
+def test_a_failing_sensor_is_listed_and_never_waits_for_the_owner(tmp_path):
     p = project(tmp_path)
     assert st.sensors_failing(p, time.time()) == []
     fail(p)
@@ -56,7 +56,7 @@ def test_a_failing_sensor_is_listed_and_waits_for_the_owner_after_three(tmp_path
     fail(p)
     snap = st.snapshot(p)
     [a] = [a for a in st.attention(snap, True, p.model) if a["what"] == "sensor mission.main"]
-    assert a["waiting"] and "its last 3 reads failed" in a["says"]
+    assert not a.get("waiting") and not a.get("answer") and "its last 3 reads failed" in a["says"]
 
 
 def test_a_sensor_that_reads_again_is_no_longer_failing(tmp_path):

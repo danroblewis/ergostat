@@ -270,6 +270,9 @@ def cmd_accept(args) -> int:
     return 0
 
 
+UNMEASURABLE = 3   # ``ergostat measure NAME``'s exit when it has no value yet, and says why: not a failure
+
+
 def cmd_measure(args) -> int:
     """``ergostat measure [NAME]``: the model's own measures (SPEC §12e), as a ``model:`` sensor reads them."""
     from ..numbers import measures as ms
@@ -285,9 +288,9 @@ def cmd_measure(args) -> int:
         except ms.MeasureError as e:
             print(e, file=sys.stderr)
             return 2
-        if v is None:
-            print(f"{args.name}: no value yet ({why or 'too little record to say'})", file=sys.stderr)
-            return 1
+        if v is None:                                     # nothing to measure yet: not a failure (exit 3, SPEC §12e)
+            print(f"{args.name}: no value yet: {why or 'too little record to say'}", file=sys.stderr)
+            return UNMEASURABLE
         print(f"{v:.6g}")
         return 0
     got = ms.all_of(p)

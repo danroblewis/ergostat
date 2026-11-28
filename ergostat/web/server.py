@@ -847,6 +847,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                 "attention": ([{"level": "bad", "what": "the model", "says": edited["banner"]}] if edited else [])
                 + st.attention(snap, running and snap["live"], m), "loops": snap["loops"], "goals_off": st.goals_off(snap),
                 "sensors_failing": snap.get("sensors_failing", []),
+                "sensors_unmeasurable": snap.get("sensors_unmeasurable", []),
                 **({"edited": edited} if edited else {}),
                 **({"held_up": _held_up(p)} if at is None and spec is not None else {}),   # the header's first line
                 "counts": {"loops": len(m.controllers), "stocks": len(m.stocks), "flows": len(m.flows),

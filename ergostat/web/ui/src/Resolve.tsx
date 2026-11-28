@@ -9,7 +9,7 @@ import { ownOf, useDashboards, type DashboardListed } from "./state/dashboards";
 
 /* Every address but the server's, read one segment at a time from the top level by lib/systemRoutes.ts (the same rules
    as spec/routes.py, over GET /api/route-table): in each scope a segment is a dashboard (the model's, or a default:
-   overview, diagrams, goals, agents, events), a projection the scope contains (its list; under it, its items), a goal
+   overview, diagrams, goals, agents, events, inbox), a projection the scope contains (its list; under it, its items), a goal
    or an agent under goals/ and agents/, or a subsystem. A deeper address of a thing also at a higher scope redirects
    (replace) to the top-most; a system's own address (/, /factory) to its Overview. ?builtin=1 draws ergostat's own
    page where the model's dashboard replaces it. Old addresses (/record, /diagram, /agent/NAME, /item/ID of one
@@ -27,6 +27,7 @@ const Projection = lazy(() => import("./pages/items/ProjectionPage"));
 const Item = lazy(() => import("./pages/items/ItemPage"));
 const Proposed = lazy(() => import("./pages/items/ProposedProjection"));
 const Events = lazy(() => import("./pages/events"));
+const Inbox = lazy(() => import("./pages/inbox"));
 // a dashboard the model declares: loaded when one is shown, so the first load does not bring every panel
 const Declared = lazy(() => import("./components/panels/Declared").then((m) => ({ default: m.DeclaredDashboard })));
 const NewDashboard = lazy(() => import("./components/panels/NewDashboard"));
@@ -38,6 +39,7 @@ const DEFAULT_PAGES: Record<string, (system: string) => ReactNode> = {
   goals: (system) => <Goals key={system} system={system} />,
   agents: (system) => <Agents key={system} system={system} />,
   events: (system) => <Events key={system} system={system} />,
+  inbox: (system) => <Inbox key={system} system={system} />,
 };
 
 /** ergostat's own page for an address, a link to it from a dashboard drawn in its place. */

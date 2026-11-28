@@ -1,9 +1,9 @@
-import { useState, type ReactNode } from "react";
-import { apiPost } from "../lib/api";
+import { type ReactNode } from "react";
+import { DecisionCard, type Entry } from "./Decisions";
 import { itemHref } from "../lib/hrefs";
 import { dur } from "../lib/format";
-import { goalsOff, useStatus, waitsOnYou, type Status } from "../state/status";
-import { AppLink, Button, Fold } from "./ui";
+import { goalsOff, waitsOnYou, type Status } from "../state/status";
+import { AppLink, Fold } from "./ui";
 
 /* What asks for the owner's attention (/api/status's attention, or a graph's in its own words), and the lists a
    diagram is read with: the parts of the Diagram page's side list, and of the attention, legend, feedback-loops,
@@ -14,46 +14,11 @@ import { AppLink, Button, Fold } from "./ui";
 export const ATTENTION_PARTS = ["waiting", "off", "housekeeping", "suggestions"] as const;
 export type AttentionPart = typeof ATTENTION_PARTS[number];
 
-const KIND_WORD: Record<string, string> = { change: "model change", action: "action", steptest: "step test", command: "command" };
-
-/** One thing the owner can answer here: what it is (linked to its page), why in a line, and its answers as buttons. */
+/** An attention entry waiting on a person, as the inbox's entry it carries (state.py attention), answered on its card. */
 function WaitingCard({ a }: { a: any }) {
-  const { refresh } = useStatus();
-  const [said, setSaid] = useState<string | null>(null);
-  const verbs: string[] = (a.answer || []).filter((v: string) => v === "approve" || v === "deny");
-  const kind = KIND_WORD[a.kind] || a.kind || "";
-  const title = String(a.first || a.what).replace(/^model change: /, "");
-  const give = (verb: string) => {
-    const note = verb === "deny" ? window.prompt("Why? (optional)") ?? undefined : undefined;
-    apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, note ? { note } : {})
-      .then(() => { setSaid(verb === "approve" ? "Approved" : "Denied"); refresh(); })
-      .catch((e) => setSaid(`Not answered: ${e.message}`));
-  };
-  return (
-    <div className="wait-card" data-row={a.what}>
-      <div className="wait-title">
-        {a.link ? <AppLink className="plain" to={a.link}><b>{title}</b></AppLink> : <b>{title}</b>}
-      </div>
-      <div className="wait-meta">{kind}{a.age ? ` · waiting ${a.age}` : ""}</div>
-      {a.more && <div className="wait-why">{a.more}</div>}
-      {said ? <div className="wait-said" data-answered>{said}</div> : (
-        <div className="wait-actions">
-          {verbs.map((v) => (
-            <Button key={v} className={v === "approve" ? "primary" : undefined} data-answer={v} onClick={() => give(v)}>
-              {v === "approve" ? "Approve" : "Deny"}
-            </Button>
-          ))}
-          {(a.workbench || []).map((w: any) => (
-            <AppLink key={w.projection} to={w.link} data-workbench={w.projection}>Open {w.projection} in the workbench</AppLink>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  const e: Entry = a.entry || { id: a.what, kind: a.kind, summary: a.first || a.what, age: 0, link: a.link, verbs: a.answer || [] };
+  return <DecisionCard e={e} />;
 }
-
-/** Whether the owner can answer it here (approve or deny). */
-const answerable = (a: any): boolean => (a.answer || []).some((v: string) => v === "approve" || v === "deny");
 
 function Row({ a, onGoal }: { a: any; onGoal: (goal: string) => void }) {
   const word = a.state || (a.kind === "request" ? "request" : waitsOnYou(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
@@ -80,7 +45,7 @@ export function Attention({ attention, status, show, onGoal }: {
 }) {
   const shown = (p: AttentionPart) => !show?.length || show.includes(p);
   const problems = attention.filter((a) => a.level !== "hint"), hints = attention.filter((a) => a.level === "hint");
-  const waiting = problems.filter(waitsOnYou).sort((x, y) => Number(answerable(y)) - Number(answerable(x)));   // answerable here first
+  const waiting = problems.filter(waitsOnYou);
   const off = problems.filter((a) => a.state === "off").sort((a, b) => Number(!!a.modelling) - Number(!!b.modelling));
   const rest = problems.filter((a) => !waitsOnYou(a) && !off.includes(a));
   const { off: nOff, upkeep } = goalsOff(status);
@@ -98,10 +63,9 @@ export function Attention({ attention, status, show, onGoal }: {
           {waiting.length > 0 ? (
             <>
               <h3 className="att-head" id="waiting" tabIndex={-1}>Waiting for you <span className="muted">{waiting.length}</span></h3>
-              {waiting.filter(answerable).map((a, i) => <WaitingCard key={a.what + i} a={a} />)}
-              {list(waiting.filter((a) => !answerable(a)), "", "needs")}
+              {waiting.map((a, i) => <WaitingCard key={a.what + i} a={a} />)}
             </>
-          ) : <p id="may-do" className="may-do">Nothing waits for you. Looking never changes the system.</p>}
+          ) : <p id="may-do" className="may-do">Nothing waits for you.</p>}
         </>
       )}
       {shown("off") && (

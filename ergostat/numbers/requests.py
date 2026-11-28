@@ -112,7 +112,8 @@ def gather(p, spec: Spec, coherence: bool = True, extremes: bool = True) -> list
         v, why = fit_why(p)
     except Exception as e:
         v, why = None, f"{type(e).__name__}: {e}"
-    if v is None and why:
+    from .measures import NOTHING_READ
+    if v is None and why and why != NOTHING_READ:       # nothing read yet: nothing to do yet, no request
         k = rid("fit", "fit-unknown", "model")
         out[k] = {"id": k, "source": "fit", "code": "fit-unknown", "about": "model", "level": "finding", "tier": "ai",
                   "says": f"the model's fit (ergostat.model.fit) cannot be worked out: {why}. Until it can, the goal "

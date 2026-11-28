@@ -88,7 +88,7 @@ def test_the_system_tree_navigates_and_the_nav_bar_is_the_chosen_systems(browser
     pg = opened(browser, url + "/overview")
     pg.wait_for_function("() => document.querySelector('#main h1')?.textContent.startsWith('plant')", timeout=WAIT)
     pg.wait_for_function("() => [...document.querySelectorAll('#nav a')].some((a) => a.textContent === 'Run')", timeout=WAIT)
-    assert nav(pg) == ["Overview", "Diagrams", "Goals", "Agents", "Events", "Run"]     # the top level's own: run
+    assert nav(pg) == ["Overview", "Diagrams", "Goals", "Agents", "Events", "Inbox", "Run"]     # the top level's own: run
     tree = pg.locator(".system-menu .menu-btn")
     tree.click()
     items = pg.locator(".system-menu .menu-item").all_inner_texts()
@@ -97,7 +97,7 @@ def test_the_system_tree_navigates_and_the_nav_bar_is_the_chosen_systems(browser
     pg.wait_for_url("**/factory/qa/overview", timeout=WAIT)
     pg.wait_for_function("() => document.querySelector('#main h1')?.textContent.startsWith('qa')", timeout=WAIT)
     pg.wait_for_function("() => [...document.querySelectorAll('#nav a')].some((a) => a.textContent === 'Note')", timeout=WAIT)
-    assert nav(pg) == ["Overview", "Diagrams", "Goals", "Agents", "Events", "Note"]
+    assert nav(pg) == ["Overview", "Diagrams", "Goals", "Agents", "Events", "Inbox", "Note"]
     assert "qa" in tree.inner_text()                                       # the tree says where the address is
     pg.locator(".panel-kind-goals table.loops tbody tr", has_text="few-notes").wait_for(timeout=WAIT)
     assert "some-runs" not in pg.locator(".panel-kind-goals").inner_text()  # qa's goals, not the top level's

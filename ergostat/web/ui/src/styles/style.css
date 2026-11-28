@@ -1247,5 +1247,13 @@ svg.canvas .proposed-changed rect, svg.canvas .proposed-changed circle, svg.canv
 /* a part whose sensor's newest read failed: unmeasured */
 svg .node.unmeasured :is(rect, path, circle, ellipse) { stroke: var(--bad); stroke-dasharray: 5 3; }
 .unmeasured-note { margin: var(--sp-2) 0; }
+/* a part whose measure has nothing to measure yet: unmeasured, in grey (not a fault) */
+svg .node.unmeasurable :is(rect, path, circle, ellipse) { stroke: var(--muted); stroke-dasharray: 2 3; }
+svg .node.unmeasurable text { fill: var(--muted); }
+.unmeasurable-note { margin: var(--sp-2) 0; }
 .unmodelled-note { border-left: 3px solid var(--warn); padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3); }
 .unmodelled-note pre { margin: var(--sp-2) 0 0; }
+.wait-card .wait-box { flex: 1 1 100%; display: flex; flex-direction: column; gap: var(--sp-0); min-width: 0; }
+.wait-card .wait-box input { width: 100%; box-sizing: border-box; }
+.decisions { display: flex; flex-direction: column; }
+.nav-count { color: var(--muted); }

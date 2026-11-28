@@ -186,10 +186,10 @@ def changes_step(spec, made: list[dict], by: list[str]) -> dict | None:
     who = " and the ".join(by)
     total = len(made)
     says = f"{total} change{'s' if total != 1 else ''} the {who} made over the last day: " + ", ".join(part(k) for k in order)
-    link = ("/diagrams#waiting" if first == "you" else changes_link(first, by)) if first else changes_link(order[0], by)
+    link = ("/inbox" if first == "you" else changes_link(first, by)) if first else changes_link(order[0], by)
     return {"step": "changes", "says": says, "stuck": stuck is not None, "link": link,
             "counts": [{"what": k, "says": WORDS[k], "n": counts[k], "latest": latest.get(k),
-                        "link": "/diagrams#waiting" if k == "you" else changes_link(k, by)} for k in order],
+                        "link": "/inbox" if k == "you" else changes_link(k, by)} for k in order],
             "written": counts.get("written", 0), "moving": moving, "at": first}
 
 

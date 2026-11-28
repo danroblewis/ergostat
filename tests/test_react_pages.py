@@ -119,7 +119,7 @@ def test_the_header_names_the_pages_and_no_project_list(browser, site):
     pg = opened(browser, site + "/goals")
     pg.wait_for_selector("#nav a", timeout=WAIT)
     pg.wait_for_selector("#nav a:has-text('Ticket')", timeout=WAIT)     # the model's projections, after a bar
-    assert pg.locator("#nav a").all_inner_texts() == ["Overview", "Diagrams", "Goals", "Agents", "Events", "Ticket"]
+    assert pg.locator("#nav a").all_inner_texts() == ["Overview", "Diagrams", "Goals", "Agents", "Events", "Inbox", "Ticket"]
     pg.locator("#nav a", has_text="Ticket").click()                      # each at /PROJECTION
     pg.wait_for_url("**/ticket", timeout=WAIT)
     assert pg.locator("select#project").count() == 0

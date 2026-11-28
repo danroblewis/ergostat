@@ -132,6 +132,7 @@ class Engine:
         self.began: dict[str, float] = {}   # when each machine block's last run began           # machine block → when its last run ended
         self.was_commanded: dict[str, bool] = {}
         self.last_reading = 0.0                        # the time of the newest reading the engine has seen
+        self.unmeasured: dict[str, str | None] = {}    # sensor → why its measure has no value yet (None: it has one)
         self.reading: set[str] = set()                 # sensors whose read is under way
         self.seen: dict[str, float] = {}               # series → the newest reading's time
         self.slots = {a.name: threading.Semaphore(a.at_once) for a in self.spec.agents.values()}
@@ -1491,15 +1492,40 @@ class Engine:
                 self.say(f"sensor {name}: {why}")
         return observe
 
+    def unmeasurable(self, s: Sensor, why: str) -> None:
+        """A measure that has no value yet, and says why (``ergostat measure`` exiting 3): not a fault. Recorded as
+        ``sensor.unmeasurable`` and logged only when it starts or its why changes, never every read."""
+        name = sensor_name(s.of.name, s.name)
+        if name not in self.unmeasured:                 # first seen since the engine began: what the record says
+            from .. import state
+            got = {x["sensor"]: x["why"] for x in state.sensors_unmeasurable(self.p, time.time())}
+            self.unmeasured[name] = got.get(name)
+        if self.unmeasured[name] == why:
+            return
+        self.unmeasured[name] = str(why)
+        self.p.events.add("sensor.unmeasurable", item=name, source=SOURCE, data={"why": str(why)})
+        self.say(f"sensor {s.of.name}.{s.name}: not measurable yet: {why}")
+
+    def measured(self, s: Sensor, failed: bool = False) -> None:
+        """A sensor that read a value, or failed: no longer unmeasurable (logged once, when it was)."""
+        name = sensor_name(s.of.name, s.name)
+        if self.unmeasured.get(name) is not None and not failed:
+            self.say(f"sensor {s.of.name}.{s.name}: measurable now")
+        self.unmeasured[name] = None
+
     def _read(self, s: Sensor) -> None:
         """One reading on a thread of its own, then a pass: for an engine whose loop is not running."""
         try:
             v, why = read_sensor(self.spec, s, self.p.events, self._observer(sensor_name(s.of.name, s.name)), self.p.measurements,
                                    env=callback_env(self.spec, self.p.dir, self.socket))
-            if v is None:
+            if v is None and isinstance(why, Unmeasurable):
+                self.unmeasurable(s, why)
+            elif v is None:
+                self.measured(s, failed=True)
                 self.p.events.add("sensor.failed", item=sensor_name(s.of.name, s.name), source=SOURCE, data={"why": why})
                 self.say(f"sensor {s.of.name}.{s.name}: {why}")
             else:
+                self.measured(s)
                 self.p.measurements.add(s.series, v)
         except Exception as e:
             self.say(f"sensor {s.of.name}.{s.name}: {type(e).__name__}: {e}")
@@ -1658,12 +1684,17 @@ class Engine:
             for s, v, why, t, err in got:
                 name = sensor_name(s.of.name, s.name)
                 if err is not None:
+                    self.measured(s, failed=True)
                     self.p.events.add("sensor.failed", item=name, source=SOURCE, data={"why": f"{type(err).__name__}: {err}"})
                     self.say(f"sensor {s.of.name}.{s.name}: {type(err).__name__}: {err}")
+                elif v is None and isinstance(why, Unmeasurable):   # nothing to measure yet: said once, not a fault
+                    self.unmeasurable(s, why)
                 elif v is None:
+                    self.measured(s, failed=True)
                     self.p.events.add("sensor.failed", item=name, source=SOURCE, data={"why": why})
                     self.say(f"sensor {s.of.name}.{s.name}: {why}")
                 else:
+                    self.measured(s)
                     rows.append((s.series, t, v))
             if rows:
                 self.p.measurements.add_many(rows)
@@ -2579,6 +2610,14 @@ def callback_env(spec: Spec, state: os.PathLike | str, socket: str | None = None
     return env
 
 
+class Unmeasurable(str):
+    """Why a reading has no value: its measure says there is nothing to measure yet (``ergostat measure`` exiting
+    ``UNMEASURABLE``), not that it failed."""
+
+
+UNMEASURABLE = 3       # cli/numbers.py's: a built-in measure with no value yet
+
+
 def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=None, counts=None,
                 env: dict[str, str] | None = None) -> tuple[float | None, str]:
     """One reading: the number, or None and why not. Counting items needs the record (or ``counts``, what the
@@ -2633,6 +2672,9 @@ def read_sensor(spec: Spec, s: Sensor, events=None, observe=None, measurements=N
                            start_new_session=True, env=env)
     except subprocess.TimeoutExpired:
         return None, f"no answer within {s.timeout:g}s"
+    if p.returncode == UNMEASURABLE and s.builtin:      # a built-in measure with no value yet, and why
+        said = (p.stderr or p.stdout).strip().splitlines()
+        return None, Unmeasurable(re.sub(r"^\S+: no value yet: ", "", said[-1] if said else "")[:300] or "no value yet")
     if p.returncode != 0:
         return None, f"exited {p.returncode}: {(p.stderr or p.stdout).strip()[:200]}"
     if observe is not None:

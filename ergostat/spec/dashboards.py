@@ -19,7 +19,7 @@ DASHBOARD_KEYS = {"title", "description", "window", "panels", "nav", "page", "sy
 RESERVED = ("api", "static")
 # ergostat's own pages: each system's default dashboards (spec/routes.py DEFAULTS: at /SYSTEM/NAME, and at /NAME for
 # the top level), replaced there by the model's dashboard of that name, and an agent's and an item's page
-BUILTIN = ("overview", "diagrams", "goals", "agents", "events", "agent", "item")
+BUILTIN = ("overview", "diagrams", "goals", "agents", "events", "inbox", "agent", "item")
 # the pages of one thing a dashboard may be drawn for (``page:``) → the address's word it binds: a panel's parameter
 # written ``$WORD`` (``agent: $agent``) takes it from the address (/agents/NAME, /PROJECTION/ID, /PROJECTION). A
 # dashboard named as a projection is that projection's page and binds ``$projection`` too. Every dashboard binds
@@ -158,6 +158,8 @@ def _check_record(c, spec, kind: str, x, at, what: str) -> bool:
 KINDS.update({
     "attention": {"show", "system"},                      # GET /api/status (its attention), these parts or all; a
     #                                                       system's: what is about a part it contains
+    "decisions": {"kinds", "system"},                     # GET /api/inbox: what waits on a person, each answerable
+    #                                                       (these kinds of entry, or all; a system's: about its parts)
     "legend": {"view"},                                   # drawn by the page: how to read that view's drawing
     "feedback-loops": {"system"},                         # GET /api/graph?view=dynamics: its feedback loops
     "control-loops": {"system"},                          # GET /api/graph?view=blocks: its control loops
@@ -169,8 +171,9 @@ KINDS.update({
 NEEDS_ATTENTION: dict[str, str] = {"legend": "view", "goal-runbook": "goal", "goal-parts": "goal",
                                    "goal-control": "goal"}
 CHOICES_ATTENTION = {"view": ("dynamics", "blocks", "process"),             # a parameter → the words it may be
-                     "show": ("waiting", "off", "housekeeping", "suggestions")}
-LISTS_ATTENTION = {"show"}
+                     "show": ("waiting", "off", "housekeeping", "suggestions"),
+                     "kinds": ("action", "person", "advise", "steptest", "change", "request", "breaker")}   # inbox KINDS
+LISTS_ATTENTION = {"show", "kinds"}
 
 NEEDS = {"query": "queries", "diagram": "address", "chart": "refs",   # (a chart: refs, or system) "states": "projection", "cycle-time": "projection", "scope": "goal",
          "items": "projection", "note": "text"}

@@ -74,14 +74,26 @@ def test_each_attention_kind_draws_on_a_declared_dashboard(browser, declared):  
 
 @pytest.mark.parametrize("view, own", [("dynamics", "Feedback loops"), ("blocks", "Control loops"),
                                        ("process", "Projections")])
-def test_the_diagram_side_list_still_draws(browser, site, view, own):  # noqa: F811
+def test_the_diagram_side_list_reads_the_diagram_only(browser, site, view, own):  # noqa: F811
     pg = opened(browser, f"{site}/diagram?view={view}")
     heading(pg, "#diagram-caption")
     pg.get_by_text("How to read it").first.wait_for(timeout=WAIT)
-    pg.get_by_text("Goals off").first.wait_for(timeout=WAIT)
-    pg.get_by_text("Model housekeeping").first.wait_for(timeout=WAIT)
     pg.get_by_text(own).first.wait_for(timeout=WAIT)
-    assert pg.locator("#may-do, #waiting").count() == 1
+    side = pg.locator(".diagram")
+    for gone in ("Goals off", "Model housekeeping", "Suggestions", "Waiting for you", "Nothing waits for you"):
+        assert side.get_by_text(gone).count() == 0, gone                    # nothing of the attention list stays here
+    assert pg.locator("#may-do, #waiting, .wait-card, .goals-off, .housekeeping").count() == 0
+    assert settled(pg) == []
+    pg.close()
+
+
+def test_goals_off_housekeeping_and_suggestions_are_on_the_goals_page(browser, site):  # noqa: F811
+    pg = opened(browser, f"{site}/goals")
+    att = pg.locator(".panel-kind-attention")
+    att.get_by_text("Goals off").first.wait_for(timeout=WAIT)
+    att.get_by_text("Model housekeeping").first.wait_for(timeout=WAIT)
+    assert att.locator("details.housekeeping").count() == 1                  # folded, as its own section
+    assert att.locator("#may-do, #waiting, .wait-card").count() == 0         # decisions are the Inbox's
     assert settled(pg) == []
     pg.close()
 
@@ -94,7 +106,7 @@ def test_a_goal_off_says_where_its_loop_stops_on_its_row_and_each_step_in_its_de
         p.measurements.add(s.series, 40.0, time.time() - 20 + 5 * i)
     server, url = web.serve(p, 0)
     try:
-        pg = opened(browser, url + "/diagram")
+        pg = opened(browser, url + "/goals")
         row = pg.locator(".goals-off [data-row='goal inbox-short']")
         row.locator("[data-stuck]").wait_for(timeout=WAIT)
         assert row.locator("[data-stuck]").inner_text() == "where it stops: the worker has never run (it runs while inbox-short is off)"

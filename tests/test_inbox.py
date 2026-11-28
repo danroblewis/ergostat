@@ -729,7 +729,7 @@ uses:
 
 def test_each_loop_line_carries_its_state_and_whether_the_goal_is_modellings(tmp_path, monkeypatch):
     """What the side list groups by (design review Q42): each loop entry says its status, a goal of a `use: modelling`
-    instance is marked modelling's, the system's own is not, and the reports-upstream line is marked waiting."""
+    instance is marked modelling's, the system's own is not, and the reports-upstream line is not a decision (not "for you")."""
     monkeypatch.setenv("ERGOSTAT_HOME", str(tmp_path / "home"))
     d = tmp_path / "grouped"
     d.mkdir()
@@ -745,7 +745,7 @@ def test_each_loop_line_carries_its_state_and_whether_the_goal_is_modellings(tmp
     assert all(a["state"] == snap["loops"][g]["status"] for g, a in loops.items()), loops
     snap["reports"] = [{"id": "report/1", "title": "a crash"}]
     said = [a for a in st.attention(snap, False, p.model) if a["what"] == "reports upstream"]
-    assert said and said[0]["waiting"] is True, said
+    assert said and not said[0].get("waiting") and not said[0].get("answer"), said   # to read, not a decision
     from ergostat.numbers import requests as rq
     rq.event(p, "r1", "held", {"code": "flow-unmeasured", "about": "flow.x", "source": "check", "tier": "ai"})
     p.events.add("person.asked", item="reviewer", source="ergostat", data={"command": 2, "ask": "look"})

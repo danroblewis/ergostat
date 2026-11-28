@@ -56,7 +56,7 @@ def test_a_nav_dashboard_is_in_the_header_at_its_own_address(browser, boards):
     _, url = boards
     pg = opened(browser, url + "/diagrams")
     pg.wait_for_function("() => [...document.querySelectorAll('#nav a')].some((a) => a.textContent === 'Crew')", timeout=WAIT)
-    assert pg.locator("#nav a").all_inner_texts() == ["Overview", "Diagrams", "Goals", "Agents", "Events", "Crew",
+    assert pg.locator("#nav a").all_inner_texts() == ["Overview", "Diagrams", "Goals", "Agents", "Events", "Inbox", "Crew",
                                                       "Ticket"]                 # the defaults, the model's, the projections
     pg.locator("#nav a", has_text="Crew").click()
     pg.wait_for_url("**/crew", timeout=WAIT)

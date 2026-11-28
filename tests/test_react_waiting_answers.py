@@ -1,4 +1,4 @@
-"""A drafted projection waiting for the owner, on the page: its row in "Waiting for you" links to the change, opens the
+"""A drafted projection waiting for the owner, on the page: its card on the Inbox links to the change, opens the
 draft in the workbench, and is approved by its button (written into the model)."""
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def test_a_draft_waiting_is_linked_opened_and_approved_from_the_page(tmp_path, m
     jd.run(p, "judge")
     server, url = web.serve(p, 0)
     try:
-        pg = opened(browser, url + "/diagram")
+        pg = opened(browser, url + "/inbox")
         row = pg.locator(f'[data-row="change/{pid}"]')
         row.wait_for(timeout=WAIT)
         assert row.locator(f'a[href$="ergostat.model-change/{pid}"]').count() == 1      # the change's own page

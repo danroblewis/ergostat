@@ -41,7 +41,8 @@ export function Shell({ children }: { children: ReactNode }) {
         </span>
         <nav id="nav" aria-label={`${scope || "The top level"}: its dashboards and projections`}>
           {defaults.map(([d, label]) => (
-            <NavLink key={d} to={scopeHref(scope, d) + carried} className={({ isActive }) => (isActive ? "on" : undefined)}>{label}</NavLink>
+            <NavLink key={d} to={scopeHref(scope, d) + carried} className={({ isActive }) => (isActive ? "on" : undefined)}>
+              {label}{d === "inbox" && <InboxCount />}</NavLink>
           ))}
           {navDashboards.map(([to, label]) => (
             <NavLink key={to} to={to + carried} className={({ isActive }) => (isActive ? "on" : undefined)}>{label}</NavLink>
@@ -209,24 +210,35 @@ function ModelErrors({ cls, said, banner, errors }: { cls: string; said: string;
   );
 }
 
-/** The sensors whose newest read failed: their parts are unmeasured, said in the header whatever page is open. */
+/** The sensors whose newest read failed: their parts are unmeasured, said in the header whatever page is open, linked
+ *  to the diagram around the (first) part unmeasured. A fault, not a decision: never in "for you". */
 function Failing() {
   const { status } = useStatus();
   const xs: SensorFailing[] = status?.sensors_failing || [];
   if (!xs.length) return null;
   const tip = xs.map((x) => `${x.sensor}: ${x.why}`).join("\n");
-  return <Link id="sensors-failing" className="runstate bad" to={diagramHref()} title={tip}>
+  return <Link id="sensors-failing" className="runstate bad" to={diagramHref({ around: xs[0].part.replace(".", "/") })} title={tip}>
     {xs.length} sensor{xs.length === 1 ? "" : "s"} failing</Link>;
 }
 
+/** How many decisions wait on a person: the inbox's entries (the Inbox page lists the same). */
+const decisionsWaiting = (status: any): number => (status?.attention || []).filter(waitsOnYou).length;
+
 function Waits() {
   const { status } = useStatus();
-  const n = (status?.attention || []).filter(waitsOnYou).length;
+  const n = decisionsWaiting(status);
   return (
     <span className="waits-said" aria-live="polite" aria-atomic="true">
-      {n > 0 && <Link id="waits" className="waits" to={`${diagramHref()}#waiting`} title={`${n} wait for you`}>{n} for you</Link>}
+      {n > 0 && <Link id="waits" className="waits" to={scopeHref("", "inbox")} title={`${n} decision${n === 1 ? "" : "s"} wait for you: the Inbox`}>{n} for you</Link>}
     </span>
   );
+}
+
+/** The Inbox's count beside its name in the nav bar (none while nothing waits). */
+function InboxCount() {
+  const { status } = useStatus();
+  const n = decisionsWaiting(status);
+  return n > 0 ? <span className="nav-count" data-inbox-count> {n}</span> : null;
 }
 
 /* the window the page looks over, and the moment it shows: the slider's right end is now (live) */

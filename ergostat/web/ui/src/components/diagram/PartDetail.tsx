@@ -5,7 +5,7 @@ import { useDetail } from "../Detail";
 import { Fields } from "../Table";
 import { AppLink, Async, Rich } from "../ui";
 import { useApi } from "../../hooks/useApi";
-import { failingOf, useStatus } from "../../state/status";
+import { failingOf, unmeasurableOf, useStatus } from "../../state/status";
 import { ago, dur, fmt, rateText } from "../../lib/format";
 
 /* What a click on a part opens in the side panel (details.js's openNodeNow, dynamics.js's openNodeSD, blocks.js's
@@ -93,6 +93,10 @@ export function SdPartPanel({ n, g }: { n: any; g: any }) {
         <p key={x.sensor} className="lvl-bad unmeasured-note">
           <b>Unmeasured.</b> Sensor {x.sensor}: {x.in_a_row > 1 ? `its last ${x.in_a_row} reads failed` : "its last read failed"} ({ago(x.at)}): {x.why}.{" "}
           {x.last_read ? `Last read ${ago(x.last_read)}.` : "Never read."}
+        </p>))}
+      {unmeasurableOf(status, flow ? `flow:${n.flow || n.label}` : n.id).map((x) => (
+        <p key={x.sensor} className="muted unmeasurable-note">
+          <b>Not measurable yet.</b> Sensor {x.sensor} has nothing to measure ({ago(x.since)}): {x.why}.
         </p>))}
       <Async state={st}>
         {(d) => {

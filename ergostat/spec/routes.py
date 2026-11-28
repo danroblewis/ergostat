@@ -53,7 +53,7 @@ from urllib.parse import quote, unquote
 from .scope import TOP, scope
 
 RESERVED = ("api", "static")
-DEFAULTS = ("overview", "diagrams", "goals", "agents", "events")
+DEFAULTS = ("overview", "diagrams", "goals", "agents", "events", "inbox")
 SHOWS = {"goals": "goal", "agents": "agent"}        # a default dashboard whose next segment names one thing
 RANK = {"server": 0, "dashboard": 1, "default": 2, "system": 3, "projection": 4}
 

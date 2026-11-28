@@ -1,5 +1,5 @@
 """The page says a failing sensor: the header's "1 sensor failing", the stock drawn unmeasured on the diagram, and
-its side panel saying why; the attention list carries it."""
+its side panel saying why; the Goals page's housekeeping carries it, never "for you"."""
 
 from __future__ import annotations
 
@@ -38,6 +38,10 @@ def test_the_header_and_the_diagram_say_the_sensor_is_failing(site, browser):
     pg.wait_for_selector(".unmeasured-note", timeout=WAIT)
     note = pg.locator(".unmeasured-note").inner_text()
     assert "Unmeasured." in note and "its last 3 reads failed" in note and "Never read." in note
-    pg.wait_for_selector('[data-row="sensor mission.main"]', state="attached", timeout=WAIT)   # (under the side panel)
+    assert "around=stock%2Fmission" in pg.locator("#sensors-failing").get_attribute("href")   # the diagram around it
+    assert pg.locator("#waits").count() == 0                                   # a fault, not a decision: not "for you"
     assert settled(pg) == []
+    pg.close()
+    pg = opened(browser, site + "/goals")                                      # the fault is the Goals page's housekeeping
+    pg.wait_for_selector('[data-row="sensor mission.main"]', state="attached", timeout=WAIT)
     pg.close()

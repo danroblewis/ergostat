@@ -2101,6 +2101,7 @@ from these same panels, so a section seen on one page can be put on any dashboar
 | `events` | `GET /api/events`: the record's events, newest first; with `remote`, that remote's, read there (section 4c) | `match` (a type as a glob, an item or a source), `item`, `about` (a goal), `machine`, `runs`, `window`, `from`, `to` (seconds since 1970), `n` (1 to 500), `remote` (a remote of the model's), `system` (the events behind what it contains: those about an item of a projection it contains, or from one of its blocks or agents) |
 | `goal-crossings`, `goal-decisions` | `GET /api/loops/GOAL`: its crossings, each a link to the Events; its controller's decisions, alike when only their numbers differ | `goal` (needed) |
 | `attention` | `GET /api/status`: what asks for the owner | `show` (any of `waiting`, `off`, `housekeeping`, `suggestions`; all when left out), `system` (what is about a goal, agent or item it contains) |
+| `decisions` | `GET /api/inbox`: what waits on a person (what `ergostat inbox` lists), each a card answered in place (section 12o) | `kinds` (any of `action`, `person`, `advise`, `steptest`, `change`, `request`, `breaker`; all when left out), `system` (those about a block it contains, or a request about its parts; the top level: all) |
 | `legend` | nothing: how to read a view's drawing | `view` (needed: `dynamics`, `blocks` or `process`) |
 | `feedback-loops`, `control-loops` | `GET /api/graph`: the feedback loops of the stock and flow diagram; the control loops of the block diagram | `system` |
 | `quiet-systems` | `GET /api/systems`: each system whose every goal holds | none |
@@ -2155,9 +2156,10 @@ system, and the top level, has the default dashboards, drawn by ergostat's own p
 |---|---|---|
 | Overview | `/overview`, `/SYSTEM/overview` | `attention`, `goals`, `chart` (its stocks and flows), `projections`, each with `system: $system` |
 | Diagrams | `/diagrams`, `/SYSTEM/diagrams` | the Diagram page, drawn for that system (the top level: everything) |
-| Goals | `/goals`, `/SYSTEM/goals` | `quiet-systems`, `goals` (every column, `system: $system`) |
+| Goals | `/goals`, `/SYSTEM/goals` | `attention` (`show: [off, housekeeping, suggestions]`), `quiet-systems`, `goals` (every column, `system: $system`) |
 | Agents | `/agents`, `/SYSTEM/agents` | `ladder`, `agents` (each `system: $system`), `daemons` |
 | Events | `/events`, `/SYSTEM/events` | `events` (`system: $system`): the events behind what it contains; the top level's, every event |
+| Inbox | `/inbox`, `/SYSTEM/inbox` | `decisions` (`system: $system`): every decision waiting on a person (section 12o) |
 
 A name two things want in one scope goes to one of them by the fixed order above (**address-shadowed**, a finding);
 only a thing left with no address anywhere is an error (**address-unreachable**): the model does not load.
@@ -4208,8 +4210,20 @@ back).
 raised) is recorded as `sensor.failed`, with why. While a sensor's newest read is a failure, what it measures is
 unmeasured, and that is said wherever the owner looks: `/api/status`'s `sensors_failing` (each sensor, what it
 measures, why, when it last tried and last read, and how many reads in a row failed); the attention list (a fault,
-waiting for the owner once three reads in a row have failed); the page's header (*1 sensor failing*); and the
-diagram, where the part is drawn unmeasured and its side panel says why. A reading since the failure ends it.
+never a decision: not in the header's "for you", not on the Inbox; the Goals page's *Model housekeeping* lists it);
+the page's header (*1 sensor failing*, linked to the diagram around the part); and the diagram, where the part is
+drawn unmeasured and its side panel says why. A reading since the failure ends it.
+
+**Not measurable yet.** A built-in measure that has nothing to measure yet (the fit of a model with no stock of its
+own read by a sensor, a budget block before its first pass: every case where `ergostat measure NAME` has no value)
+is not a failure: `ergostat measure NAME` exits 3 and prints `NAME: no value yet: WHY`, and the engine records the
+sensor as `sensor.unmeasurable` (with `why`) only when that starts or its why changes, never each read, and logs it
+once then and once when a value is read again (`measurable now`). It is not a fault: not in `sensors_failing`, not
+counted, not on the attention list; `/api/status`'s `sensors_unmeasurable` lists each (sensor, part, why, since).
+The part is drawn unmeasured in grey, its side panel saying *Not measurable yet* and why; once it reads a value it
+is a normal reading. While the fit is unmeasurable only because no stock of the model's own is read by a sensor (a
+projections-first model at its start), no modelling request (`fit-unknown`) is raised for it: there is nothing for
+the owner or the AI tier to do yet.
 
 **Backfilled readings.** A history kept outside ergostat (a measure computed at each commit of a
 repository's past, say) is written into a sensor's series at its own times, where the charts, the
@@ -4594,12 +4608,12 @@ repair or interventions), `upkeep: <template>`: the modelling system's own work,
 and not among them. `/api/status` carries `goals_off` (`system` off, `open`, `unknown`, and `own: {modelling: n}`,
 upkeep goals off or open), and the project list's row moves those goals from `off` to `upkeep_off` and carries the
 same counts as `goals`. That one count (`state.goals_off`) is the only one: the page's header, the project switcher,
-the side list's "Goals off" heading, the Goals page's heading and the diagram's caption (its total the system's goals,
+the Goals page's "Goals off" heading, the Goals page's heading and the diagram's caption (its total the system's goals,
 model upkeep apart; Blocks: `controlled_off`, the same count of the goals a controller holds) print it as given and
 never count goals by status themselves; `ergostat` (and its `--json`, as `goals_off`) and `ergostat projects` print
 it in one form, `N goals off · M open · K unknown · model upkeep J` (a zero left out, but the first). The page's
 header says only `N off`, a link to the Goals page, its title the whole wording, `model upkeep J` and the goals off
-by name; beside it `N for you` (its title `N wait for you`) links to the Diagram's *Waiting for you*.
+by name; beside it `N for you` (the decisions waiting, the inbox's entries, never a fault) links to the Inbox (`/inbox`).
 
 **A quiet system.** When every goal whose `system` is a system's or one within it (the `loops` filtered by it and
 its subsystems, as its closed box folds them in) is holding, the system says so: `all N goals holding, nothing being
@@ -4621,7 +4635,7 @@ changes table (never a scan of the record), counted by what became of each in th
 with the judge, wait for the reviewer, written, sent back by the reviewer, rejected by the reviewer, failed by the
 judge, refused at check, superseded, dismissed, inconclusive, the step that stops first with its latest finding:
 `5 changes the drafter made over the last day: 5 sent back by the reviewer (latest: "State modifying has no exit…")`.
-Changes waiting for the owner stop it there (`N wait for you`, linked to *Waiting for you*); changes with the judge or
+Changes waiting for the owner stop it there (`N wait for you`, linked to the Inbox); changes with the judge or
 the reviewer are where it is, not a stop (said when nothing else stops; changes waiting for a reviewer whose block is
 failing or capped add its step). Once it acted (a change written, a valve opened) and the stock did not move toward
 its setpoint over the window: `it acted, and STOCK did not move`. Each step's link is what it is about: the block's
@@ -9677,35 +9691,38 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   `--stats` (below).
 - The MCP tools `inbox` and `answer`, so the owner's Claude session can answer on their behalf when told to; its
   answers are recorded as from `owner via mcp`, counted apart, and never evidence for graduating a class.
-- The page: the entries are listed under *Waiting for you*, at the top of the Diagram's side panel (only when one
-  waits; more than 3 fold into one line, "N wait for you", that opens them, though never while the reader is in the
-  list), each with Approve / Deny, or a number and
-  Done, inline: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N` (`note=`); `GET /api/inbox`. Each box has a
-  label above it and no placeholder, as wide as the row: a number names its unit and flow (the flow's unit, else its
-  stock's: "Jobs done, along reviewed (number)"), a reason that it is required ("Reason for denying (required)": Deny
-  waits for it), as is a fold's ("Reason for denying all (required)", over its Deny all). Every person ask gets a number, even one whose outputs are two named ends: the number moves its
-  first flow only ("Ramps done, along ramps-approved"), and nothing in a block says its answer is yes or no. The
-  item pages keep their own buttons. No page or panel of its own. Every entry is listed, however many come before it. While the
-  pointer or the focus is in one of the side panel's lists (*Waiting for you*, *Goals off*, *Model housekeeping*; and
-  likewise in the Agents table), that list holds still: no row is moved or taken away, a refresh only says at its top
-  how many rows wait ("3 updates waiting"), and they are applied when the reader leaves. An entry answered or gone
-  meanwhile stays in its place and says so in its row until then. Held modelling requests that are alike (one code,
-  one asker: the entry's `fold`) are one entry, folded: their count, their code and the systems of their parts, with
-  one why and *Deny all* (each denied in turn); opened, each with its own answer. The Model page's *Changes to review*
-  counts them as waiting. The list opens with one muted sentence saying what a person may do: "You can look at
-  everything. Approving or denying these is the only thing that changes the system." The list is a group described by
-  that sentence (`aria-describedby`), so a screen reader reads it once on entering the list, not on each poll. With
-  nothing waiting, the same place says "Nothing waits for you. Looking never changes the system." The gated actions'
-  own page (`/ergostat.action`) opens with the first sentence.
+- The page: **the Inbox** (`/inbox`, and `/SYSTEM/inbox` for the entries about a system's parts), a default dashboard
+  of every system (nav item *Inbox*, with its count), made of the `decisions` panel (parameters `kinds`: only those
+  kinds of entry; `system`), editable in place like every page (saved as the dashboard named `inbox`). It lists
+  exactly what `ergostat inbox` lists (`GET /api/inbox`), each a card: its title linked to its page, what kind it is
+  and how long it waited (and its class's record), why in a line or two (an action's warning, the command it runs,
+  the suggestion up the ladder), and its answers as buttons, every verb the CLI has: *Approve* (a breaker's
+  *Reset*), *Deny* (it asks for a reason, labelled above its box: "Reason for denying (required)" for a modelling
+  request, whose Deny waits for it, "(optional)" for the rest), and for a person's request a number box labelled with
+  its unit and flow ("Jobs done, along reviewed (number)": the number moves its first flow) and *Done*; a drafted
+  projection's card also opens it in the workbench: `POST /api/inbox/ID/approve`, `/deny` or `/done?n=N` (`note=`).
+  Nothing on it is only to read. With nothing waiting it says "Nothing waits for you."; otherwise it opens with one
+  muted sentence: "You can look at everything. Approving or denying these is the only thing that changes the
+  system." **The header's *N for you*** counts these decisions only (the same count as the page) and links to the
+  Inbox. A fault (a sensor failing, a daemon down, a dead letter) is never a decision: it is not counted there and not
+  on the Inbox; the header says *N sensor(s) failing* on its own, linked to the diagram around the part. The item
+  pages keep their own buttons; the Overview's attention panel shows the same cards.
 
-**The Diagram's side panel, with nothing chosen** is in this order, in every view and at every width: *Waiting for
-you* (above); then *How to read it*, the legend of the diagram's type (stock and flow diagram, block diagram, process
-map; in Dynamics and Blocks it lists only the symbols the model drawn has), open unless the reader closed it in this browser (then it stays closed, until
-they open it again); then the rest of what needs attention: *Goals off* (the system's goals, then modelling's after a
-rule; as many as the header's "loops off") and *Model housekeeping* (folded unless a fault is in it; modelling's held
-requests go there), each with its count and each entry starting with its state or kind word; then Suggestions, the loop list (the Process view's projections)
-and The model's edits, each folded with its count in its summary. No chart is shown until parts are chosen; a chosen
-part's panel is as before.
+**The Diagram's side panel, with nothing chosen** keeps only what reads the diagram, in every view and at every
+width: *How to read it*, the legend of the diagram's type (stock and flow diagram, block diagram, process map; in
+Dynamics and Blocks it lists only the symbols the model drawn has), open unless the reader closed it in this browser
+(then it stays closed, until they open it again); then the loop list (Feedback loops, Control loops, or the Process
+view's projections), folded with its count in its summary. Nothing of the attention list is there. No chart is shown
+until parts are chosen; a chosen part's panel is as before.
+
+**The Goals page** opens with what needs attention about the system's goals and model: *Goals off* (the system's
+goals, then modelling's after a rule; as many as the header's "loops off"; each saying where its loop is stuck),
+*Model housekeeping* (folded unless a fault is in it: failing sensors, daemons, dead letters, residuals, findings;
+modelling's held requests are decisions, on the Inbox) and *Suggestions* (folded), each with its count and each entry
+starting with its state or kind word: one `attention` panel (`show: [off, housekeeping, suggestions]`) above the
+quiet systems and every goal. While the pointer or the focus is in one of these lists, it holds still: no row is moved
+or taken away, a refresh only says at its top how many rows wait ("3 updates waiting"), and they are applied when the
+reader leaves.
 
 **`notify:`** (top level, main file only) sends what newly waits on a person:
 

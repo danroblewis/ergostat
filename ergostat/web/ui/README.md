@@ -3,7 +3,7 @@
 ergostat's page. It is built into `../static/app/` and served by ergostat's own server at every path but `/api`,
 `/static` and `/remote`; the page resolves the path itself (`src/lib/systemRoutes.ts` over GET /api/route-table,
 `src/Resolve.tsx`), one segment at a time from the top level: in each system's scope a dashboard (the model's, or a
-default: overview, diagrams, goals, agents, events), a projection it contains (`/factory/qa/note`, its items under
+default: overview, diagrams, goals, agents, events, inbox), a projection it contains (`/factory/qa/note`, its items under
 it), `goals/NAME`, `agents/NAME`, or a subsystem; a deeper address redirects to the top-most (SPEC §4f, *Addresses*).
 Python needs nothing at runtime: the built files are committed. The old vanilla-JS page it was ported from is gone (2026-11-25), with its Model, Check and Guide pages, the
 header's project list and `ergostat snapshot`.

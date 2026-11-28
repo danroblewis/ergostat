@@ -18,7 +18,11 @@ export const OVERVIEW_PANELS: PanelDef[] = [
   { panel: "projections", id: "projections", title: "Its projections", system: "$system" },
 ].map(full);
 
+/** A system's Goals: at the top, the goals off (each saying where its loop is stuck), the model's housekeeping and the
+ *  suggestions (one attention panel, its own headings: housekeeping and suggestions folded); then the quiet systems
+ *  and every goal. */
 export const GOALS_PANELS: PanelDef[] = [
+  { panel: "attention", id: "attention", show: ["off", "housekeeping", "suggestions"], system: "$system" },
   { panel: "quiet-systems", id: "quiet", title: "Quiet systems", quiet: true },
   { panel: "goals", id: "goals", title: "Every goal", columns: "all", system: "$system" },
 ].map(full);
@@ -27,6 +31,11 @@ export const AGENTS_PANELS: PanelDef[] = [
   { panel: "ladder", id: "ladder", title: "The ladder", system: "$system" },
   { panel: "agents", id: "agents", title: "Agents, by rung", system: "$system" },
   { panel: "daemons", id: "daemons", title: "Daemons" },
+].map(full);
+
+/** A system's Inbox: every decision waiting on a person (what `ergostat inbox` lists), each answered in place. */
+export const INBOX_PANELS: PanelDef[] = [
+  { panel: "decisions", id: "decisions", title: "Waiting for you", system: "$system" },
 ].map(full);
 
 /** A system's Events: those behind what it contains (its projections' items, its blocks' and agents' own). */
@@ -64,7 +73,7 @@ export const PROJECTION_PANELS: PanelDef[] = [
   full({ panel: "item-list", id: "items", title: "Items", projection: "$projection" }),
 ];
 
-export type PageName = "overview" | "goals" | "agents" | "events" | "agent" | "item" | "projection";
+export type PageName = "overview" | "goals" | "agents" | "events" | "inbox" | "agent" | "item" | "projection";
 
 /** ergostat's own pages made of panels, and the address's word one of one thing takes (`page:` names those). */
 export const PAGES: Record<PageName, { title: string; panels: PanelDef[]; binds?: "agent" | "item" | "projection" }> = {
@@ -72,6 +81,7 @@ export const PAGES: Record<PageName, { title: string; panels: PanelDef[]; binds?
   goals: { title: "Goals", panels: GOALS_PANELS },
   agents: { title: "Agents", panels: AGENTS_PANELS },
   events: { title: "Events", panels: EVENTS_PANELS },
+  inbox: { title: "Inbox", panels: INBOX_PANELS },
   agent: { title: "An agent", panels: AGENT_PANELS, binds: "agent" },
   item: { title: "An item", panels: ITEM_PANELS, binds: "item" },
   projection: { title: "A projection", panels: PROJECTION_PANELS, binds: "projection" },
@@ -88,4 +98,5 @@ export function pageDashboard(page: PageName, bind: Record<string, string> = {})
  *  DEFAULTS). */
 export const DEFAULTS: [string, string][] = [
   ["overview", "Overview"], ["diagrams", "Diagrams"], ["goals", "Goals"], ["agents", "Agents"], ["events", "Events"],
+  ["inbox", "Inbox"],
 ];

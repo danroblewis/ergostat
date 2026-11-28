@@ -28,9 +28,9 @@ export function StatusProvider({ children }: { children: ReactNode }) {
 
 export const useStatus = () => useContext(StatusContext);
 
-/** An entry that waits on a person: the header's "N for you". */
-export const waitsOnYou = (a: any): boolean =>
-  a.level !== "hint" && ((Array.isArray(a.answer) && a.kind !== "request") || !!a.waiting);
+/** An entry that waits on a person, a decision (the inbox's: it has answers): the header's "N for you". A fault (a
+ *  sensor failing, a daemon down) is never one. */
+export const waitsOnYou = (a: any): boolean => a.level !== "hint" && Array.isArray(a.answer);
 
 /** The goals off as the server counted them; "?" when not known, never read as none. */
 export function goalsOff(st?: Status): { off: number | "?"; upkeep: number } {
@@ -41,6 +41,19 @@ export function goalsOff(st?: Status): { off: number | "?"; upkeep: number } {
 /** A sensor whose newest read failed (/api/status's sensors_failing): what it measures (`stock.NAME`), and why. */
 export type SensorFailing = { sensor: string; part: string; why: string; at: number; last_read: number | null; in_a_row: number };
 
+/** A sensor whose measure has nothing to measure yet (/api/status's sensors_unmeasurable): not a fault. */
+export type SensorUnmeasurable = { sensor: string; part: string; why: string; since: number };
+
+/** The unmeasurable sensors of a diagram part, by its node id or its part. */
+export const unmeasurableOf = (st: Status | undefined, id: string): SensorUnmeasurable[] =>
+  ((st?.sensors_unmeasurable || []) as SensorUnmeasurable[]).filter((x) => isPart(x.part, id));
+
+/** Whether a part (`stock.NAME`, `auxiliary.NAME`, `flow.NAME`) is a diagram node's (an auxiliary is drawn `stock:NAME`). */
+const isPart = (part: string, id: string): boolean => {
+  const p = id.replace(":", ".");
+  return part === p || (p.startsWith("stock.") && part === "auxiliary." + p.slice(6));
+};
+
 /** The failing sensors of a diagram part, by its node id (`stock:NAME`, `flow:NAME`) or its part (`stock.NAME`). */
 export const failingOf = (st: Status | undefined, id: string): SensorFailing[] =>
-  ((st?.sensors_failing || []) as SensorFailing[]).filter((x) => x.part === id.replace(":", "."));
+  ((st?.sensors_failing || []) as SensorFailing[]).filter((x) => isPart(x.part, id));

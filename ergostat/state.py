@@ -415,6 +415,7 @@ def _snapshot(project, window: float, now: float | None) -> dict:
             "stocks": stocks, "flows": flows, "loops": loops, "residuals": residuals,
             "agents": agents}
     snap["sensors_failing"] = sensors_failing(project, now)
+    snap["sensors_unmeasurable"] = sensors_unmeasurable(project, now)
     snap["hints"] = ladder_hints(project, snap)
     snap["messages"] = unrouted_messages(project, now)
     snap["inbox"], snap["quarantined"] = inbox(project, now, live), quarantined(project)
@@ -455,6 +456,7 @@ def sensors_failing(project, now: float) -> list[dict]:
         return []
     sensors = {sensor_name(s.of.name, s.name): s for s in spec.sensors() if not s.manual}
     out = []
+    unm = latest(project, "sensor.unmeasurable", sorted(sensors), until=now)
     for name, f in latest(project, "sensor.failed", sorted(sensors), until=now).items():
         if f is None:
             continue
@@ -462,11 +464,37 @@ def sensors_failing(project, now: float) -> list[dict]:
         ok = _latest(project, s.series, now)
         if ok is not None and ok[0] >= f["time"]:
             continue                                  # read since it last failed
+        if unm.get(name) is not None and unm[name]["seq"] > f["seq"]:
+            continue                                  # not measurable yet since: not a fault (sensors_unmeasurable)
         row = project.events.query(n=FAILING_ASKS, type="sensor.failed", item=name,
                                    **({"since": ok[0]} if ok is not None else {}), until=now)
         out.append({"sensor": name, "part": f"{s.of.kind}.{s.of.name}", "why": (f.get("data") or {}).get("why") or "",
                     "at": f["time"], "last_read": ok[0] if ok is not None else None, "in_a_row": len(row),
                     "every": s.every})
+    return out
+
+
+def sensors_unmeasurable(project, now: float) -> list[dict]:
+    """The sensors whose measure answered "no value yet, because ..." (``sensor.unmeasurable``, recorded when that
+    starts or its why changes) and that have neither read a value nor failed since: not a fault, nothing to measure
+    yet. Each with what it measures, why, and since when."""
+    from .spec.legacy import sensor_name
+    from .spec.projections import latest
+    spec = getattr(project.model, "spec", None)
+    if spec is None:
+        return []
+    sensors = {sensor_name(s.of.name, s.name): s for s in spec.sensors() if not s.manual}
+    failed = latest(project, "sensor.failed", sorted(sensors), until=now)
+    out = []
+    for name, u in latest(project, "sensor.unmeasurable", sorted(sensors), until=now).items():
+        if u is None or (failed.get(name) is not None and failed[name]["seq"] > u["seq"]):
+            continue
+        s = sensors[name]
+        ok = _latest(project, s.series, now)
+        if ok is not None and ok[0] >= u["time"]:
+            continue                                  # read a value since: a normal reading
+        out.append({"sensor": name, "part": f"{s.of.kind}.{s.of.name}", "why": (u.get("data") or {}).get("why") or "",
+                    "since": u["time"]})
     return out
 
 
@@ -920,9 +948,8 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
             out.append({"level": "warn", "what": f"agent {name}", "says": f"no recent reading from {', '.join(a['stale'])}"})
     for x in snap.get("sensors_failing", []):         # a part measured by nothing that answers (its newest read failed)
         read = f"last read {human(time.time() - x['last_read'])} ago" if x.get("last_read") else "never read"
-        many = x["in_a_row"] >= FAILING_ASKS
+        many = x["in_a_row"] >= FAILING_ASKS          # a fault, never a decision: not "for you" (the inbox's alone)
         out.append({"level": "bad", "what": f"sensor {x['sensor']}", "part": x["part"], "sensor": x["sensor"],
-                    **({"waiting": True} if many else {}),
                     "says": f"its {'last ' + str(x['in_a_row']) + ' reads' if many else 'last read'} failed: {x['why']} "
                     f"({read}; {x['part'].replace('.', ' ', 1)} is unmeasured)"})
     for m in snap.get("messages", []):               # the owner's words that reached no work (SPEC §12h)
@@ -959,7 +986,7 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                     f"workspaces {w['pool']} --free {w['slot']}"})
     if snap.get("reports"):                         # reports upstream waiting for the owner to read (SPEC §12m): one line
         rs = snap["reports"]
-        out.append({"level": "warn", "what": "reports upstream", "waiting": True, **({"item": rs[0]["id"]} if len(rs) == 1 else {}),
+        out.append({"level": "warn", "what": "reports upstream", **({"item": rs[0]["id"]} if len(rs) == 1 else {}),
                     "says": (f"{len(rs)} drafted" if len(rs) > 1 else f"\u201c{rs[0]['title'][:70]}\u201d drafted")
                     + " about ergostat itself, scrubbed, for you to read and submit by hand if you choose: ergostat report"})
     for h in snap.get("hints", []):                  # a goal's: the goal named once, as its heading
@@ -979,6 +1006,8 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
              + (f"; {e['record']}" if e.get("record") else "") + (f". {e['suggest']}" if e.get("suggest") else "")
              + (f". runs: {e['run']}" if e.get("run") else "") + (f". {en.command(e)}" if e["verbs"] else ""),
              "first": e["summary"] + (f" because {by}" if by else ""), "age": human(e["age"]), "run": e.get("run"),
+             "entry": {k: e[k] for k in ("id", "kind", "summary", "age", "link", "verbs", "why", "warn", "record",
+                                         "suggest", "flow", "unit", "workbench", "run", "block", "system") if k in e},
              "cli": en.command(e), "record": e.get("record"), "suggest": e.get("suggest"),
              "more": None if by else e.get("why") or None}         # an action's reason ends its sentence, said once
             for e in snap.get("inbox", []) for by in [e["kind"] == "action" and not e.get("warn") and e.get("why")]]

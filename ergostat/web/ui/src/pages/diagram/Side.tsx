@@ -1,24 +1,19 @@
 import { AppLink, Fold } from "../../components";
-import { Attention, ControlLoops, FeedbackLoops, feedbackCount, Legend, LEGEND_TYPE } from "../../components/Attention";
+import { ControlLoops, FeedbackLoops, feedbackCount, Legend, LEGEND_TYPE } from "../../components/Attention";
 import { ago } from "../../lib/format";
 import { projectionHref } from "../../lib/hrefs";
-import { useStatus } from "../../state/status";
 
-/* The list beside the diagram (diagram.js's renderSide), drawn from the attention panels' components: what waits for
-   the owner, how to read the drawing (legend), the goals off, the model's housekeeping, suggestions (attention), then
-   the view's own list (feedback-loops, control-loops, and the process map's projections). */
+/* The list beside the diagram (diagram.js's renderSide): only what reads the diagram: how to read the drawing (legend),
+   then the view's own list (feedback-loops, control-loops, and the process map's projections). What asks for the
+   owner is elsewhere: decisions on the Inbox, the goals off, the model's housekeeping and suggestions on Goals. */
 
 export function Side({ g, view, onGoal, onPick }: { g: any; view: string; onGoal: (goal: string) => void; onPick: (n: any) => void }) {
-  const { status: st } = useStatus();
-  const all: any[] = g?.attention || st?.attention || [];
   const loops = Object.keys(g?.loops || {});
   return (
     <>
-      <Attention attention={all} status={st} show={["waiting"]} onGoal={onGoal} />
       <Fold className="legend-box" open summary={<>How to read it<span className="muted"> · the {LEGEND_TYPE[view]}</span></>}>
         <Legend view={view} />
       </Fold>
-      <Attention attention={all} status={st} show={["off", "housekeeping", "suggestions"]} onGoal={onGoal} />
       {view === "dynamics" && (
         <Fold className="loops" summary={<>Feedback loops <span className="muted">{feedbackCount(g)}</span></>}>
           <FeedbackLoops g={g} />

@@ -63,6 +63,11 @@ def fit(p) -> float | None:
     return t.get("nmse") if t and run.valid else None
 
 
+# the fit's why when the model has no stock of its own read by a sensor (a projections-first model at its start):
+# nothing for the owner or the AI tier to do yet, so no modelling request is raised for it (numbers/requests.py)
+NOTHING_READ = "no stock of the model's own is read by a sensor, so there is nothing to replay the model against"
+
+
 def fit_why(p) -> tuple[float | None, str | None]:
     """The model's fit (``ergostat.model.fit``) and, when it cannot be worked out, why, in words that say what would
     make it measurable: stocks read by a sensor, flows that move them (an equation, or a sensor), and record."""
@@ -71,7 +76,7 @@ def fit_why(p) -> tuple[float | None, str | None]:
     from ..spec.ir import template_made
     read = [n for n, st in spec.stocks.items() if st.sensors and not template_made(st)]
     if not read:
-        return None, "no stock of the model's own is read by a sensor, so there is nothing to replay the model against"
+        return None, NOTHING_READ
     moved = [n for n in read if any(f.equation is not None or f.sensors or f.rate is not None for f in spec.flows_of(n))]
     if not moved:
         return None, (f"no flow of the stocks read ({', '.join(read[:4])}) has an equation or a sensor, so the replay "

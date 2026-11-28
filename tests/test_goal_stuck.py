@@ -130,4 +130,4 @@ def test_modellings_drafts_waiting_for_the_owner_say_so(tmp_path, monkeypatch):
     p, pid = drafted(tmp_path, monkeypatch, review=False)
     e = entry(p, "events-explained")
     assert e["stuck"] == "1 change the drafter made over the last day: 1 waits for you", e
-    assert e["stuck_link"] == "/diagrams#waiting"
+    assert e["stuck_link"] == "/inbox"
