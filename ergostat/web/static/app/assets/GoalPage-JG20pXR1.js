@@ -1,0 +1,1 @@
+import{j as t,P as e}from"./index-Dd8gq5-l.js";import{a as o}from"./GoalDetail-BchGSQ3-.js";function l({name:a}){return t.jsx(e,{title:a,className:"goal-page",children:t.jsx(o,{name:a})})}export{l as default};

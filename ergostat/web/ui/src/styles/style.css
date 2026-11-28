@@ -1275,5 +1275,5 @@ svg .node.unmeasurable text { fill: var(--muted); }
 .state-graph .sg-head { fill: var(--muted); }
 .state-graph text { font-size: 11px; fill: var(--ink-2); font-variant-numeric: tabular-nums;
   paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
-.state-graph .sg-unreached { margin: var(--sp-1) 0 0; display: flex; flex-wrap: wrap; gap: 0 var(--sp-2); align-items: baseline; }
+.state-graph .stbox.unreached { opacity: 0.45; border-style: dashed; }   /* a state no item has reached yet, in its place */
 .state-graph.states { margin: var(--sp-1) 0 0; }

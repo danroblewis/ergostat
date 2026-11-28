@@ -5,8 +5,9 @@ import { projectionHref } from "../lib/hrefs";
    as it folds them), with how many times; never the declared list with an arrow between neighbours. Laid out left to
    right in the order items pass through (each state after the states that lead into it, a side exit branching off
    where it leaves), a move back to an earlier state drawn under the chips as a back edge; the moves into a state from
-   nowhere (its arrivals) as an entry from the left; a finishing state boxed double. The states no item has reached
-   follow in one muted line. Small and plain: chips are HTML (each filters the list, as before), the lines an SVG under
+   nowhere (its arrivals) as an entry from the left; a finishing state boxed double. A state no item has reached yet is
+   drawn faded where it belongs, with no arrow: a finishing state in the last column, any other after the states
+   declared before it. Small and plain: chips are HTML (each filters the list, as before), the lines an SVG under
    them. */
 
 export type Move = { from: string | null; to: string; n: number };
@@ -14,7 +15,7 @@ export type Move = { from: string | null; to: string; n: number };
 const COL_GAP = 56, ROW_H = 24, ROW_GAP = 8, ENTRY = 30, CH = 7.2, PAD = 22, BACK = 16;
 
 export type Layout = {
-  nodes: { st: string; x: number; y: number; w: number; rank: number }[];
+  nodes: { st: string; x: number; y: number; w: number; rank: number; reached: boolean }[];
   edges: { from: string; to: string; n: number; back: boolean }[];
   entries: { to: string; n: number }[];
   unreached: string[];
@@ -22,7 +23,7 @@ export type Layout = {
 };
 
 /** Where each state goes: its rank (the longest way into it, back edges left out) and its row in that rank. */
-export function layoutStates(states: string[], counts: Record<string, number>, moves: Move[]): Layout {
+export function layoutStates(states: string[], counts: Record<string, number>, moves: Move[], ends: Set<string> = new Set()): Layout {
   const order = [...states];
   for (const m of moves) for (const s of [m.from, m.to]) if (s && !order.includes(s)) order.push(s);
   for (const s of Object.keys(counts)) if (s && counts[s] && !order.includes(s)) order.push(s);
@@ -56,15 +57,24 @@ export function layoutStates(states: string[], counts: Record<string, number>, m
     }
     if (!changed) break;
   }
+  // the states not reached yet, placed where they belong (no move says where, the model does): a finishing one in the
+  // last column, any other one column after the reached states declared before it
+  const unreached = order.filter((s) => !active.has(s));
+  const top = Math.max(0, ...nodes.map((s) => rank.get(s)!));
+  for (const s of unreached) {
+    const before = nodes.filter((r) => idx(r) < idx(s)).map((r) => rank.get(r)!);
+    rank.set(s, ends.has(s) ? Math.max(top, before.length ? Math.max(...before) + 1 : 0) : before.length ? Math.min(Math.max(...before) + 1, top) : 0);
+  }
+  const all = [...nodes, ...unreached];
   const ranks: string[][] = [];
-  for (const s of nodes) (ranks[rank.get(s)!] ||= []).push(s);
+  for (const s of all) (ranks[rank.get(s)!] ||= []).push(s);
   const row = new Map<string, number>();
   ranks.forEach((col, r) => {                          // each column ordered by where its sources sit, then in order
     const bary = (s: string) => {
       const ins = fwd.filter((m) => m.to === s && row.has(m.from)).map((m) => row.get(m.from)!);
       return ins.length ? ins.reduce((a, b) => a + b, 0) / ins.length : Infinity;
     };
-    if (r > 0) col.sort((a, b) => bary(a) - bary(b) || idx(a) - idx(b));
+    if (r > 0) col.sort((a, b) => Number(!active.has(a)) - Number(!active.has(b)) || bary(a) - bary(b) || idx(a) - idx(b));
     col.forEach((s, i) => row.set(s, i));
   });
   const wOf = (s: string) => Math.round((s.length + String(counts[s] || 0).length) * CH + PAD);
@@ -73,15 +83,15 @@ export function layoutStates(states: string[], counts: Record<string, number>, m
   const colX: number[] = [];
   colW.reduce((x, w, i) => { colX[i] = x; return x + w + COL_GAP; }, x0);
   const tall = Math.max(1, ...ranks.map((c) => (c || []).length));
-  const placed = nodes.map((s) => ({ st: s, rank: rank.get(s)!, x: colX[rank.get(s)!], y: row.get(s)! * (ROW_H + ROW_GAP), w: colW[rank.get(s)!] }));
+  const placed = all.map((s) => ({ st: s, rank: rank.get(s)!, x: colX[rank.get(s)!], y: row.get(s)! * (ROW_H + ROW_GAP), w: colW[rank.get(s)!], reached: active.has(s) }));
   const hasBack = moved.some((m) => back.has(`${m.from}\u0000${m.to}`));
   return {
     nodes: placed,
     edges: moved.map((m) => ({ ...m, back: back.has(`${m.from}\u0000${m.to}`) })),
     entries,
-    unreached: order.filter((s) => !active.has(s)),
-    width: nodes.length ? colX[colX.length - 1] + colW[colW.length - 1] : 0,
-    height: nodes.length ? tall * (ROW_H + ROW_GAP) - ROW_GAP + (hasBack ? BACK + 12 : 0) : 0,
+    unreached,
+    width: all.length ? colX[colX.length - 1] + colW[colW.length - 1] : 0,
+    height: all.length ? tall * (ROW_H + ROW_GAP) - ROW_GAP + (hasBack ? BACK + 12 : 0) : 0,
   };
 }
 
@@ -91,12 +101,12 @@ export function StateGraph({ k, state, onState }: {
   const counts: Record<string, number> = k.counts || {};
   const moves: Move[] = k.moves || [];
   const ends = new Set<string>(k.lives_on ? [] : [...(k.finished || []), ...(k.final || [])]);
-  const L = layoutStates(k.states || [], counts, moves);
+  const L = layoutStates(k.states || [], counts, moves, ends);
   const at = new Map(L.nodes.map((n) => [n.st, n]));
-  const chip = (st: string, style?: React.CSSProperties) => (
+  const chip = (st: string, style?: React.CSSProperties, unreached = false) => (
     <a key={st} href={projectionHref(k.name, `state=${encodeURIComponent(st)}`)} style={style} data-state={st}
-      className={`stbox${counts[st] ? " some" : ""}${state === st ? " on" : ""}${ends.has(st) ? " final" : ""}`}
-      aria-pressed={state === st} title={ends.has(st) ? `${st}: finishes` : st}
+      className={`stbox${counts[st] ? " some" : ""}${state === st ? " on" : ""}${ends.has(st) ? " final" : ""}${unreached ? " unreached" : ""}`}
+      aria-pressed={state === st} title={(ends.has(st) ? `${st}: finishes` : st) + (unreached ? " (no item has reached it yet)" : "")}
       onClick={(ev) => { ev.preventDefault(); onState?.(state === st ? null : st); }}>
       <span className="n">{String(counts[st] || 0)}</span>{st}
     </a>
@@ -147,14 +157,8 @@ export function StateGraph({ k, state, onState }: {
               );
             })}
           </svg>
-          {L.nodes.map((n) => chip(n.st, { left: n.x, top: n.y, width: n.w, height: ROW_H }))}
+          {L.nodes.map((n) => chip(n.st, { left: n.x, top: n.y, width: n.w, height: ROW_H }, !n.reached))}
         </div>
-      )}
-      {L.unreached.length > 0 && (
-        <p className="sg-unreached muted small">
-          {L.nodes.length ? "not reached yet: " : ""}
-          {L.unreached.map((st) => chip(st))}
-        </p>
       )}
     </div>
   );

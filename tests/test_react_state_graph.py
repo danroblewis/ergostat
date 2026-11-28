@@ -66,9 +66,12 @@ def test_the_list_header_draws_the_moves_made_not_the_declared_order(browser, br
     assert g.locator(".sg-entry[data-to=made] text").text_content().strip() == "11"                        # the arrivals
     assert g.locator(".stbox.final[data-state=refused]").count() == 1                                # an end, marked
     assert g.locator(".stbox.final[data-state=superseded]").count() == 1
-    assert g.locator(".sg-unreached .stbox[data-state=verified]").count() == 1                       # never reached
-    box = {s: g.locator(f".sg-canvas .stbox[data-state={s}]").bounding_box() for s in ("made", "checked", "refused", "superseded")}
+    assert g.locator(".sg-canvas .stbox.unreached[data-state=verified]").count() == 1                # never reached: in its place
+    assert g.locator(".sg-edge[data-to=verified], .sg-edge[data-from=verified]").count() == 0      # with no arrow
+    assert "not reached yet" not in g.inner_text()                                                    # no line of its own
+    box = {s: g.locator(f".sg-canvas .stbox[data-state={s}]").bounding_box() for s in ("made", "checked", "refused", "superseded", "verified")}
     assert box["made"]["x"] < box["checked"]["x"] < box["refused"]["x"] == box["superseded"]["x"]    # left to right, side by side
+    assert box["verified"]["x"] >= box["refused"]["x"]                                                # an end: the last column
     g.locator(".stbox[data-state=superseded]").click()                                              # a chip filters the list
     pg.wait_for_url("**state=superseded**", timeout=WAIT)
     assert settled(pg) == []
