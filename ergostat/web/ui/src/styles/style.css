@@ -260,7 +260,7 @@ h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 .att .att-stuck { font-size: var(--text-sm); color: var(--ink-2); margin-top: var(--sp-0); overflow-wrap: anywhere; }
 .goal-stuck li.stuck { font-weight: 600; }
 /* a thing the owner answers here: its title, a line of why, its buttons on their own line */
-.wait-card { border: 1px solid var(--line); border-radius: 6px; padding: var(--sp-2); margin: var(--sp-2) 0; overflow-wrap: anywhere; }
+.wait-card { border: 1px solid var(--line); border-radius: var(--radius-menu); padding: var(--sp-2); margin: var(--sp-2) 0; overflow-wrap: anywhere; }
 .wait-card .wait-meta { color: var(--muted); font-size: var(--text-sm); }
 .wait-card .wait-why { margin-top: var(--sp-1); font-size: var(--text-sm); color: var(--ink-2); }
 .wait-card .wait-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; margin-top: var(--sp-2); }
@@ -401,9 +401,9 @@ td.spark-cell svg { cursor: pointer; }
 .u-legend { display: none; }
 /* a chart's hover readout (charts/hover.ts): the time, then each line's colour, name and value */
 .chart-tip { position: absolute; z-index: 5; pointer-events: none; background: var(--bg); color: var(--ink); border: 1px solid var(--line-strong);
-  border-radius: 4px; padding: 4px 6px; font-size: var(--text-sm); white-space: nowrap; box-shadow: 0 1px 4px rgb(0 0 0 / 0.15); }
-.chart-tip-time { color: var(--muted); margin-bottom: 2px; }
-.chart-tip-swatch { display: inline-block; width: 10px; height: 3px; vertical-align: middle; border-radius: 1px; }
+  border-radius: var(--radius); padding: var(--sp-1) var(--sp-2); font-size: var(--text-sm); white-space: nowrap; box-shadow: var(--shadow-menu); }
+.chart-tip-time { color: var(--muted); margin-bottom: var(--sp-0); }
+.chart-tip-swatch { display: inline-block; width: 10px; height: 3px; vertical-align: middle; border-radius: var(--hair); }
 .u-select { position: absolute; pointer-events: none; background: var(--accent-wash); }
 .u-cursor-x, .u-cursor-y { position: absolute; left: 0; top: 0; pointer-events: none; will-change: transform; }
 .u-hz .u-cursor-x { height: 100%; border-right: var(--hair) solid var(--accent); }
@@ -1272,7 +1272,7 @@ svg .node.unmeasurable text { fill: var(--muted); }
 .state-graph .sg-edge path, .state-graph .sg-entry path { fill: none; stroke: var(--muted); stroke-width: 1.2; }
 .state-graph .sg-edge.back path { stroke-dasharray: 4 3; }
 .state-graph .sg-head { fill: var(--muted); }
-.state-graph text { font-size: 11px; fill: var(--ink-2); font-variant-numeric: tabular-nums;
+.state-graph text { font-size: var(--canvas-sm); fill: var(--ink-2); font-variant-numeric: tabular-nums;
   paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
 .state-graph .stbox.unreached { opacity: 0.45; border-style: dashed; }   /* a state no item has reached yet, in its place */
 .state-graph.states { margin: var(--sp-1) 0 0; }
