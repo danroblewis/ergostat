@@ -33,9 +33,13 @@ export const AGENTS_PANELS: PanelDef[] = [
   { panel: "daemons", id: "daemons", title: "Daemons" },
 ].map(full);
 
-/** A system's Inbox: every decision waiting on a person (what `ergostat inbox` lists), each answered in place. */
+/** A system's Inbox: every decision waiting on a person (what `ergostat inbox` lists), each answered in place; below,
+ *  everything it asked, newest first, answered or not (the built-in projection ergostat.inbox, its graph of states
+ *  above it). */
 export const INBOX_PANELS: PanelDef[] = [
   { panel: "decisions", id: "decisions", title: "Waiting for you", system: "$system" },
+  { panel: "item-list", id: "history", title: "Everything asked, newest first", projection: "ergostat.inbox", finished: "show",
+    header: true },
 ].map(full);
 
 /** A system's Events: those behind what it contains (its projections' items, its blocks' and agents' own). */

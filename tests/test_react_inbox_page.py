@@ -101,3 +101,20 @@ def test_nothing_waiting_says_so(tmp_path, browser):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_a_past_decision_is_listed_below_with_its_answer(site, browser):
+    from ergostat.inbox import answer
+    p, url = site
+    es = {e["kind"]: e for e in entries.entries(p)}
+    answer.answer(p, p.model.spec, es["advise"]["id"], "deny", note="not this week")
+    pg = opened(browser, url + "/inbox")
+    pg.wait_for_selector(".wait-card", timeout=WAIT)
+    hist = pg.locator(".panel-kind-item-list")
+    hist.locator(".projection-bar[data-projection='ergostat.inbox']").wait_for(timeout=WAIT)   # its graph of states
+    row = hist.locator("tr", has_text="not this week")
+    row.wait_for(timeout=WAIT)
+    assert "denied" in row.inner_text() and "owner" in row.inner_text()
+    assert pg.locator(f'.wait-card[data-row="{es["advise"]["id"]}"]').count() == 0   # no longer waiting above
+    assert settled(pg) == []
+    pg.close()

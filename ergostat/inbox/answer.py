@@ -68,5 +68,7 @@ def answer(p, spec, eid: str, verb: str, n: float | None = None, note: str | Non
             said = (pr.accept(p, key, snap, by=by) if yes else pr.dismiss(p, key, note, by=by))["status"]
     except (gate.GateError, cp.ProposalError, pr.ProposalError, rq.RequestError, KeyError) as x:
         raise AnswerError(str(x)) from None
+    from . import history
+    history.answered(p, spec, e["id"], verb, by, note, n)  # its history: by whom, and what they said
     return {"id": e["id"], "kind": kind, "verb": verb, "said": said, "summary": e["summary"], "link": e["link"],
             "item": item}

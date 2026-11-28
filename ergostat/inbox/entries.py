@@ -224,6 +224,14 @@ def entries(p, spec=None, now: float | None = None) -> list[dict]:
             got = relinked(spec, got)                        # each link at its address (spec/routes.py)
         except Exception:                                   # an unreadable table leaves the links as written
             pass
+        if live:                                            # the inbox's history: what was asked, and answered
+            from . import history
+            try:
+                wrote = history.sync(p, spec, got)
+            except Exception:                               # (a record not written here: the inbox is still read)
+                wrote = 0
+            if wrote and p.events.last_seq() == key[2] + wrote:   # (only its own events since: still this answer)
+                key = (*key[:2], key[2] + wrote, key[3])
         _CACHE.clear()
         _CACHE[key] = got
     return [{**e, "age": max(0.0, now - e["time"])} for e in got]

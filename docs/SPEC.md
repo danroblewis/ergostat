@@ -2091,7 +2091,7 @@ from these same panels, so a section seen on one page can be put on any dashboar
 | `items-by-projection` | `GET /api/items`: each projection's newest under its system | `q`, `finished` (`hide`, `waits`, `show`), `per_projection` (1 to 500) |
 | `projection-now` | `GET /api/items-flow`: a projection's states over the window and how long its finished took | `projection` (needed), `points`, `states` |
 | `projection-model`, `projection-definition` | `GET /api/projections/PROJECTION`: what in the model counts it, its goals and loops; its definition | `projection` (needed) |
-| `item-list` | `GET /api/items`: one projection's items, paged, searched and sorted by the server | `projection` (needed), `state` (one of its states), `q`, `sort` (`FIELD` or `-FIELD`), `finished`, `n` |
+| `item-list` | `GET /api/items`: one projection's items, paged, searched and sorted by the server | `projection` (needed), `state` (one of its states), `q`, `sort` (`FIELD` or `-FIELD`), `finished`, `n`, `header` (`true`: the projection's bar above the list, with its graph of states; a state chosen there is the list's) |
 | `item-summary`, `item-path`, `item-relations`, `item-fields`, `item-refused`, `item-moves`, `item-events` | `GET /api/items/ITEM`: one part of an item | `item` (needed: any id) |
 | `item-why` | `GET /api/why`: why it is not done (as the record is now) | `item` (needed) |
 | `item-changes` | `GET /api/items/ITEM?history=`: each field's changes | `item` (needed), `history` (a field, or `all`) |
@@ -2159,7 +2159,7 @@ system, and the top level, has the default dashboards, drawn by ergostat's own p
 | Goals | `/goals`, `/SYSTEM/goals` | `attention` (`show: [off, housekeeping, suggestions]`), `quiet-systems`, `goals` (every column, `system: $system`) |
 | Agents | `/agents`, `/SYSTEM/agents` | `ladder`, `agents` (each `system: $system`), `daemons` |
 | Events | `/events`, `/SYSTEM/events` | `events` (`system: $system`): the events behind what it contains; the top level's, every event |
-| Inbox | `/inbox`, `/SYSTEM/inbox` | `decisions` (`system: $system`): every decision waiting on a person (section 12o) |
+| Inbox | `/inbox`, `/SYSTEM/inbox` | `decisions` (`system: $system`): every decision waiting on a person; `item-list` (`projection: ergostat.inbox`, `finished: show`, `header: true`): everything asked, newest first (section 12o) |
 
 A name two things want in one scope goes to one of them by the fixed order above (**address-shadowed**, a finding);
 only a thing left with no address anywhere is an error (**address-unreachable**): the model does not load.
@@ -9765,7 +9765,33 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   system." **The header's *N for you*** counts these decisions only (the same count as the page) and links to the
   Inbox. A fault (a sensor failing, a daemon down, a dead letter) is never a decision: it is not counted there and not
   on the Inbox; the header says *N sensor(s) failing* on its own, linked to the diagram around the part. The item
-  pages keep their own buttons; the Overview's attention panel shows the same cards.
+  pages keep their own buttons; the Overview's attention panel shows the same cards. Below the cards, the Inbox lists
+  **everything it asked**, newest first, answered or not (an `item-list` panel of `ergostat.inbox`, finished shown,
+  its graph of states above it): what was asked, its state, who answered, when, and their note.
+
+**Its history: the built-in projection `ergostat.inbox`** (`ergostat/inbox/history.py`), one item per thing asked of a
+person, its id the entry's (`ergostat.inbox/change/ca4c2e9f`, `ergostat.inbox/person/reviewer@41`), so its page shows
+its history. States `waiting`, then one of `approved`, `denied`, `done` (a person's report) or `superseded` (it stopped
+being asked without an answer: the change superseded, the request answered of itself, the action expired, a newer
+ask), each finished. Fields: `class`, `kind`, `summary` (what was asked), `why`, `asked` (when), `link` (the thing it
+is about), `workbench` (a draft's link), `round` (which time it is asked: a request held again is asked again), and
+once answered `answered` (when), `by`, `note`, `n` (a report's amount), `verdict`. Only ergostat writes it (sealed),
+where the inbox is worked out, on a change only (a listing of the same record writes nothing):
+
+- `ergostat.inbox.asked` when an entry first appears;
+- `ergostat.inbox.approved`, `.denied` or `.done` when it is answered: written by `answer` (the CLI's `ergostat inbox`,
+  the page, the MCP's `answer`) with who answered and their note; and, for an entry answered anywhere else (an
+  action's own page or `ergostat action`, `ergostat block --done`, a change accepted on its page, the repair loop's
+  approvers, whose `by` says which), read from its kind's record when the entry is gone;
+- `ergostat.inbox.superseded` when an entry is gone and its kind's record shows no answer.
+
+Each event's id is made from the entry's id, its round and what it is, so two processes working the inbox out at
+once write it once, and an answer and a superseded never both end one round. The decisions panel's cards and the
+projection's `waiting` items are the same set: each listing first makes the one agree with the other. The Events
+page finds them with the query `type.startswith('ergostat.inbox.')`. Kept from when this was added (2026-11-28):
+what waited then was recorded as asked; what was answered before was not written back. (The name is the inbox's:
+`ergostat.decision` is the owner's decisions of intent, section 5a.) The week's counts (`--stats`, below) are read
+as before, from each kind's own record, which holds the answers from before the history was kept.
 
 **The Diagram's side panel, with nothing chosen** keeps only what reads the diagram, in every view and at every
 width: *How to read it*, the legend of the diagram's type (stock and flow diagram, block diagram, process map; in

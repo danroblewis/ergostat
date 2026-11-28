@@ -16,7 +16,7 @@ NAMES = {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items":
 OLD = ("kind", "kinds", "per_kind")   # the names a projection was written under before (2026-11-26): gone
 # the parameters the newer kinds take (the older ones' are in the schema already): each one's type
 PARAMS = {
-    "fit": FLAG, "quiet": FLAG, "address": {"type": "string", "pattern": "^/diagram"},
+    "fit": FLAG, "quiet": FLAG, "header": FLAG, "address": {"type": "string", "pattern": "^/diagram"},
     "agent": {"anyOf": [{"$ref": "#/$defs/name"}, {"const": "$agent"}]},     # $agent: the page's address's (page: agent)
     "columns": {"oneOf": [{"enum": list(d.GOAL_COLUMNS)}, {"type": "array", "minItems": 1, "items": {"enum": list(d.GOAL_COLUMNS)}}]},
     "item": TEXT, "q": TEXT, "sort": TEXT, "history": TEXT, "field": TEXT, "match": TEXT, "about": {"$ref": "#/$defs/name"},

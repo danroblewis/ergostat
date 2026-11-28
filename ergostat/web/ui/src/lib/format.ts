@@ -55,8 +55,8 @@ export function stamp(t: number | null | undefined): string {
 export const clock = (t: number): string =>
   new Date(t * 1000).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit" });
 
-const TIME_FIELD = /(^|_)at$|^(raised|since|started)$/;
-/** A field that holds a time (*_at, raised, since, started), as a stamp; else null. */
+const TIME_FIELD = /(^|_)at$|^(raised|since|started|asked|answered)$/;
+/** A field that holds a time (*_at, raised, since, started, asked, answered), as a stamp; else null. */
 export function timeField(name: string, v: unknown): string | null {
   if (!TIME_FIELD.test(String(name))) return null;
   const t = typeof v === "number" ? v : typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v) ? Date.parse(v) / 1000 : NaN;

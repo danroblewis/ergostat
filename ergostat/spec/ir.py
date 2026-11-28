@@ -447,6 +447,22 @@ def session_kind() -> ItemKind:
                           "tokens_in": "sum", "tokens_out": "sum"}, finished=["ran", "failed", "lost"], lost=["failed", "lost"])
 
 
+INBOX = "ergostat.inbox"            # the built-in projection: each thing the inbox asked of a person (SPEC §12o)
+INBOX_STATES = ["waiting", "approved", "denied", "done", "superseded"]   # superseded: no longer asked, unanswered
+
+
+def inbox_kind() -> ItemKind:
+    """One thing asked of a person (``inbox/history.py``): its key the inbox entry's id (``change/ca4c2e9f``), asked
+    when the entry first appears, answered (approved, denied, done) by whoever answered it, or superseded when it
+    stopped being asked unanswered. Only ergostat writes one."""
+    on = {f"{INBOX}.{s}": s for s in INBOX_STATES if s != "waiting"}
+    on[f"{INBOX}.asked"] = "waiting"
+    return ItemKind(INBOX, f"{INBOX}/*", list(INBOX_STATES), on, ["summary", "class", "by", "answered", "note"], {},
+                    None, "each thing the inbox asked of a person: what was asked and why, when, and how it was "
+                    "answered (approved, denied, done), by whom and with what note, or superseded: it stopped being "
+                    "asked unanswered (built in, SPEC §12o)", sealed=True, finished=INBOX_STATES[1:])
+
+
 BYPASS = "ergostat.bypass"        # the built-in projection: the owner's bypass lease on a class (SPEC §12k)
 
 

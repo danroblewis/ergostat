@@ -12,7 +12,7 @@ import {
   CHANGES_SHOWN, hasPath, hasRelations, ItemChanges, ItemEvents, ItemFields, ItemMoves, ItemPath, ItemRefused, ItemRelations,
   ItemSummary, ItemWhy, whySays,
 } from "../../itemParts";
-import { hiddenStates, ItemsTable } from "../../items";
+import { hiddenStates, ItemsTable, ProjectionBar } from "../../items";
 import { EveryProjection, ProjectionModel, ProjectionsOverview, ProcessMapLink } from "../../projectionParts";
 import { Code } from "../../Markdown";
 import { Async, Empty, Loading } from "../../ui";
@@ -116,7 +116,7 @@ function ItemListFrame({ def, every, refreshKey, tools }: FrameProps) {
   const at: PanelDef = bound ? def : { ...def, ...mine };
   const set = (c: Changes) => (bound ? def.onParams(c) : setMine((m) => ({ ...m, page: null, ...c })));
   const got = usePanelAnswer<any>("items", itemListParams(at), every, refreshKey);
-  const projection = def.projection, needle = (def.q || "").trim(), state = def.state, size = at.n ?? 25;
+  const projection = def.projection, needle = (def.q || "").trim(), state = at.state, size = at.n ?? 25;
   const showFin = at.finished === "show";
   return (
     <Framed def={def} title="Items" tools={tools}>
@@ -132,6 +132,8 @@ function ItemListFrame({ def, every, refreshKey, tools }: FrameProps) {
           );
           return (
             <section className="sys-group projection-items">
+              {/* header: the projection's bar above its list, its graph of states (a state chosen there, the list's) */}
+              {def.header && k && <ProjectionBar k={k} state={state || null} onState={(st) => set({ state: st, page: null })} />}
               {its.length ? (
                 <>
                   {pager("top")}

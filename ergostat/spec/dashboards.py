@@ -72,7 +72,8 @@ KINDS.update({
     "projection-now": {"projection", "points", "states"},  # GET /api/items-flow (and /api/projections/P): its states
     "projection-model": {"projection"},                   # GET /api/projections/P: what counts it, its goals and loops
     "projection-definition": {"projection"},              # GET /api/projections/P: its definition
-    "item-list": {"projection", "state", "q", "sort", "finished", "n"},   # GET /api/items: one projection's, paged
+    "item-list": {"projection", "state", "q", "sort", "finished", "n", "header"},   # GET /api/items: one projection's,
+    #                                                       paged (header: its bar above it, with its graph of states)
     **{k: _ITEM for k in _ONE_ITEM},                      # GET /api/items/ITEM (item-why: GET /api/why?item=ITEM)
     "item-changes": _ITEM | {"history"},                  # GET /api/items/ITEM?history=FIELD|all: each field's changes
     "item-state-timeline": _ITEM,                         # GET /api/items/ITEM: its states over time, a band
@@ -93,6 +94,10 @@ def _one_of(*words):
     return check
 
 
+def _flag(v):
+    return None if isinstance(v, bool) else "true or false"
+
+
 def _text(v):
     return None if isinstance(v, str) and v.strip() else "text"
 
@@ -107,7 +112,7 @@ CHECKS_ITEMS = {
     "projections": {"states": _one_of("all", "groups")},
     "items-by-projection": {"q": _text, "finished": _one_of("hide", "waits", "show"), "per_projection": _whole(1, 500)},
     "projection-now": {"states": _one_of("all", "groups")},
-    "item-list": {"state": _text, "q": _text, "sort": _text, "finished": _one_of("hide", "waits", "show")},
+    "item-list": {"state": _text, "q": _text, "sort": _text, "finished": _one_of("hide", "waits", "show"), "header": _flag},
     **{k: {"item": _text} for k in _ONE_ITEM},
     "item-changes": {"item": _text, "history": _text},
     "item-state-timeline": {"item": _text},
