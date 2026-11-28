@@ -1,0 +1,1 @@
+import{j as t,P as e}from"./index-_8m8aX_K.js";import{G as o}from"./GoalDetail-CiDTnHx2.js";function l({name:a}){return t.jsx(e,{title:a,className:"goal-page",children:t.jsx(o,{name:a})})}export{l as default};

@@ -98,7 +98,6 @@ export function KeySide({ draft, ed, editable }: { draft: Draft; ed: MappingEdit
   const taken = draft.fields.some((f) => f.name === v);
   const ok = /^[A-Za-z_][\w-]*$/.test(v) && !taken;
   const add = () => { if (editable && ok) { ed.addKeyField(v, type); setName(""); } };
-  const all = draft.kinds.filter((k) => solvedKey(draft.key, k).every((p) => p.expr)).length;
   return (
     <section className="wb-keyside" aria-label="Its key">
       <h2 className="small">Its key <span className="muted">the fields that are an object&apos;s identity, in order</span></h2>
@@ -112,11 +111,6 @@ export function KeySide({ draft, ed, editable }: { draft: Draft; ed: MappingEdit
         <button type="button" disabled={!editable || !ok} onClick={add}>Add to the key</button>
         {taken && v && <span className="muted small">a field already: add it above</span>}
       </p>
-      {draft.key.length > 0 && draft.kinds.length > 0 && (
-        <p className="small" data-testid="key-told">
-          <span className={all === draft.kinds.length ? undefined : "lvl-warn"}>{all} of {draft.kinds.length}</span> kind{draft.kinds.length === 1 ? "" : "s"} of event tell every key field
-        </p>
-      )}
     </section>
   );
 }

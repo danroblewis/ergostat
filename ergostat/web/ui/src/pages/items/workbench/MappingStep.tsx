@@ -196,7 +196,8 @@ function KindMapping({ k, draft, ed, editable, fold, opened }: {
     return empties.has(x) && decidedUnder.some((d) => d.startsWith(x + ".") || d.startsWith(x + "["));
   };
   const left = new Set(all.flatMap((x) => x.leaves.filter((p) => !settled(p, x.empties)).map(pathExpr))).size;
-  const complete = evs.length > 0 && left === 0;
+  const keyMissing = solved.filter((kp) => kp.expr == null).map((kp) => kp.field);   // key fields this kind doesn't tell
+  const complete = evs.length > 0 && left === 0 && !keyMissing.length;
   const [open, setOpen] = useState(true);
   const wasComplete = useRef(false);
   useEffect(() => { if (complete && !wasComplete.current) setOpen(false); wasComplete.current = complete; }, [complete]);
@@ -284,7 +285,10 @@ function KindMapping({ k, draft, ed, editable, fold, opened }: {
         <strong>{k.name}</strong>{" "}
         {complete ? <span className="muted small" data-testid={`done-${k.name}`}>every path in its events mapped or ignored</span>
           : <code className="muted small">{short(k.when, 80)}</code>}
-        {!complete && evs.length > 0 && <span className="muted small"> · {left} path{left === 1 ? "" : "s"} left</span>}
+        {!complete && evs.length > 0 && left > 0 && <span className="muted small"> · {left} path{left === 1 ? "" : "s"} left</span>}
+        {keyMissing.length > 0 && (
+          <span className="lvl-warn small" data-testid={`key-missing-${k.name}`}> · its key: no {keyMissing.join(", ")}</span>
+        )}
       </summary>
       {opened && <Banner o={opened.o} live={live} kind={k.name} onUsual={opened.onUsual} />}
       {mapped.length > 0 && (

@@ -147,8 +147,7 @@ def test_a_new_projection_is_made_in_the_workbench_saved_and_reopened_on_its_rev
     assert "0" not in takes and "" not in takes
     assert f"{CHANGE}:" in pg.locator(".wb-yaml .cm-content").inner_text()
 
-    told = pg.locator("[data-testid=key-told]").inner_text()
-    assert told.startswith("0 of ") and "kinds of event tell every key field" in told
+    assert pg.locator("[data-testid^=key-missing-]").count() >= 5     # each kind that doesn't tell the key says so, on the left
 
     # 4. the mapping: a value hovered opens a floating panel by it, gone once the pointer leaves; a value clicked keeps it
     change = kind_box(pg, CHANGE)
