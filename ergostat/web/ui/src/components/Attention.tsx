@@ -1,7 +1,8 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { apiPost } from "../lib/api";
 import { itemHref } from "../lib/hrefs";
 import { dur } from "../lib/format";
-import { goalsOff, waitsOnYou, type Status } from "../state/status";
+import { goalsOff, useStatus, waitsOnYou, type Status } from "../state/status";
 import { AppLink, Fold } from "./ui";
 
 /* What asks for the owner's attention (/api/status's attention, or a graph's in its own words), and the lists a
@@ -13,23 +14,47 @@ import { AppLink, Fold } from "./ui";
 export const ATTENTION_PARTS = ["waiting", "off", "housekeeping", "suggestions"] as const;
 export type AttentionPart = typeof ATTENTION_PARTS[number];
 
+/** An inbox entry's answers (approve, deny, as /api/inbox/ID/VERB takes them), said back once given. */
+function Answers({ a }: { a: any }) {
+  const { refresh } = useStatus();
+  const [said, setSaid] = useState<string | null>(null);
+  const verbs: string[] = (a.answer || []).filter((v: string) => v === "approve" || v === "deny");
+  if (!verbs.length || !waitsOnYou(a)) return null;
+  if (said) return <span className="muted" data-answered> · {said}</span>;
+  const give = (verb: string) => {
+    const note = verb === "deny" ? window.prompt("Why? (optional)") ?? undefined : undefined;
+    apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, note ? { note } : {})
+      .then(() => { setSaid(verb === "approve" ? "approved" : "denied"); refresh(); })
+      .catch((e) => setSaid(`not answered: ${e.message}`));
+  };
+  return (
+    <span className="att-answers">
+      {" "}{verbs.map((v) => <button key={v} type="button" data-answer={v} onClick={() => give(v)}>{v === "approve" ? "Approve" : "Deny"}</button>)}
+    </span>
+  );
+}
+
 function Row({ a, onGoal }: { a: any; onGoal: (goal: string) => void }) {
   const word = a.state || (a.kind === "request" ? "request" : waitsOnYou(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
   const what = <b className={a.level === "bad" ? "lvl-bad" : "lvl-warn"}>{a.what}</b>;
-  const href = a.item ? itemHref(a.item) : null;
+  const href = a.item ? itemHref(a.item) : a.link || null;
   return (
     <div data-row={a.what}>
       <span className="att-word">{word} · </span>
       {href ? <AppLink className="plain" to={href}>{what}</AppLink>
         : a.goal ? <button type="button" className="name" onClick={() => onGoal(a.goal)}>{what}</button> : what}{" "}
       {String(a.says || "").replace(/\. ergostat inbox .*$/, "")}
+      {(a.workbench || []).map((w: any) => (
+        <span key={w.projection}> · <AppLink to={w.link} data-workbench={w.projection}>open {w.projection} in the workbench</AppLink></span>
+      ))}
+      <Answers a={a} />
       {a.diagnosis_in ? <span className="muted"> · diagnosis in {dur(a.diagnosis_in)}</span> : null}
     </div>
   );
 }
 
-/** The attention entries, those parts of them asked for (``show``, all when none). The inbox's answer buttons are not
- *  ported: a row waiting links to where it is answered. */
+/** The attention entries, those parts of them asked for (``show``, all when none). A row waiting links to its entry
+ *  (a change's page, a drafted projection in the workbench) and is answered there or by its Approve / Deny. */
 export function Attention({ attention, status, show, onGoal }: {
   attention: any[]; status?: Status; show?: readonly AttentionPart[] | null; onGoal: (goal: string) => void;
 }) {
