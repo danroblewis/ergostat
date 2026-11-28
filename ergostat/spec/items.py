@@ -730,10 +730,23 @@ def listing(events, spec, kind: str | None = None, state: str | None = None, unt
                        "description": k.description, "system": where[k.name]["system"], "system_why": where[k.name]["why"],
                        "relations": {r: x.kinds for r, x in k.relations.items()},
                        "progress": [r for r, x in k.relations.items() if offered(k, x)],   # (grouptally.py)
-                       "counts": counts.get(k.name, {}), **finishes(events, spec, k.name)} for k in kinds.values()],
+                       "counts": counts.get(k.name, {}), "moves": moves(events, spec, k.name),
+                       **finishes(events, spec, k.name)} for k in kinds.values()],
             "systems": systems, "unprojected": unprojected,
             "total": total, "offset": offset,
             "items": [_listed(i, kinds, where) for i in page]}
+
+
+def moves(events, spec, kind: str) -> list[dict]:
+    """The moves a kind's items have made, from one state to another (``from`` none: arrived in ``to``), with how many
+    times, the most first: what the list's header draws as the kind's graph of states (SPEC §5a, *The list's header*).
+    As the index keeps them now (``ItemIndex.steps``: counted as the moves are folded, never read from the record
+    here); none for a record kept nowhere on disk."""
+    ix = _index(events, spec, False)
+    if ix is None:
+        return []
+    with ix.lock:
+        return ix.steps(kind)
 
 
 def finishes(events, spec, kind: str) -> dict:

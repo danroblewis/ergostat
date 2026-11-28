@@ -13,6 +13,11 @@ from ..state import fmt
 from .common import at_of, open_project, out_json, parts_of, snap_of
 
 
+def moves_line(moves: list[dict]) -> str:
+    """A projection's moves as made, the most first: "arrived in open 11, open → held 9, held → answered 1"."""
+    return ", ".join(f"{'arrived in ' + m['to'] if m['from'] is None else m['from'] + ' → ' + m['to']} {m['n']}" for m in moves)
+
+
 def event_line(e: dict) -> str:
     t = time.strftime("%H:%M:%S", time.localtime(e["time"]))
     said = {"patch": e["patch"]} if e.get("patch") is not None else {"set": e["set"]} if e.get("set") is not None else e["data"]
@@ -134,6 +139,8 @@ def cmd_item(args) -> int:
         for k in got["projections"]:
             counts = " · ".join(f"{s} {k['counts'].get(s, 0)}" for s in k["states"]) or f"{sum(k['counts'].values())} items"
             print(f"{c(k['name'], 'accent')} {c(k['id'], 'dim')}  {counts}")
+            if k.get("moves"):                           # its graph of states: the moves made, never the list's order
+                print("  " + c(moves_line(k["moves"]), "dim"))
         if got["projections"]:
             print()
         show = sorted({f for k in got["projections"] for f in k["show"] if args.projection in (None, k["name"])})

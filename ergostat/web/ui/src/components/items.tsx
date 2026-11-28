@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ago, dur, fmt, nowS, plural, stamp, timeField } from "../lib/format";
 import { itemHref, projectionHref } from "../lib/hrefs";
 import { Segmented } from "./controls";
+import { StateGraph } from "./StateGraph";
 import { Markdown } from "./Markdown";
 import { Table } from "./Table";
 
@@ -12,7 +13,8 @@ import { Table } from "./Table";
 /** The states a list leaves out unless shown: a projection's finished and dead, none for one that lives on. */
 export const hiddenStates = (k: any): string[] => (!k || k.lives_on ? [] : [...(k.finished || []), ...(k.dead ? ["dead"] : [])]);
 
-/** A projection's bar (kinds.js kindBar): title, id pattern, total, description, its state chips with counts, how it ends. */
+/** A projection's bar (kinds.js kindBar): title, id pattern, total, description, its graph of states (StateGraph: each
+    state's count now, the moves made between them), how it ends. */
 export function ProjectionBar({ k, level = 3, state, onState, open, onOpen }: {
   k: any; level?: 1 | 2 | 3; state?: string | null; onState?: (st: string | null) => void; open?: boolean; onOpen?: () => void;
 }) {
@@ -20,7 +22,6 @@ export function ProjectionBar({ k, level = 3, state, onState, open, onOpen }: {
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const fin = k.lives_on ? "lives on" : k.finished?.length ? `finishes: ${k.finished.join(", ")}` : null;
   const H = `h${level}` as "h1" | "h2" | "h3";
-  const states: string[] = k.states?.length ? k.states : [""];
   return (
     <div className="projection-bar" data-projection={k.name}>
       <H className="projection-title">
@@ -38,22 +39,16 @@ export function ProjectionBar({ k, level = 3, state, onState, open, onOpen }: {
         <span className="muted projection-total"> {plural(total, "item")}</span>
       </H>
       {k.description && <p className="projection-desc">{k.description}</p>}
-      <div className="states">
-        {states.map((st, i) => (
-          <span key={st || "-"}>
-            {i > 0 && <span className="arrow" aria-hidden="true">→</span>}
-            <a
-              href={`${projectionHref(k.name, st ? `state=${encodeURIComponent(st)}` : "")}`}
-              className={`stbox${counts[st] ? " some" : ""}${st && state === st ? " on" : ""}`}
-              aria-pressed={!!st && state === st}
-              onClick={(ev) => { ev.preventDefault(); onState?.(st && state === st ? null : st || null); }}
-            >
-              <span className="n">{String(counts[st] || 0)}</span>
-              {st || "items"}
-            </a>
-          </span>
-        ))}
-      </div>
+      {k.states?.length ? (
+        <StateGraph k={k} state={state} onState={onState} />
+      ) : (
+        <div className="states">
+          <a href={projectionHref(k.name)} className={`stbox${total ? " some" : ""}`}
+            onClick={(ev) => { ev.preventDefault(); onState?.(null); }}>
+            <span className="n">{String(total)}</span>items
+          </a>
+        </div>
+      )}
       <p className="muted small projection-says">
         {fin}
         {fin && k.system ? " · " : null}

@@ -1262,3 +1262,18 @@ svg .node.unmeasurable text { fill: var(--muted); }
 .wait-card .wait-box input { width: 100%; box-sizing: border-box; }
 .decisions { display: flex; flex-direction: column; }
 .nav-count { color: var(--muted); }
+
+/* a projection's graph of states (StateGraph.tsx): chips placed over an SVG of the moves made between them */
+.state-graph { margin: var(--sp-1) 0 0; max-width: 100%; overflow-x: auto; }
+.state-graph .sg-canvas { position: relative; }
+.state-graph .sg-canvas svg { position: absolute; left: 0; top: 0; overflow: visible; }
+.state-graph .sg-canvas > .stbox { position: absolute; box-sizing: border-box; display: flex; align-items: center;
+  white-space: nowrap; overflow: hidden; border: 1px solid var(--line); background: var(--bg); padding: 0 var(--sp-1); }
+.state-graph .stbox.final { border: 3px double var(--line-strong); }
+.state-graph .sg-edge path, .state-graph .sg-entry path { fill: none; stroke: var(--muted); stroke-width: 1.2; }
+.state-graph .sg-edge.back path { stroke-dasharray: 4 3; }
+.state-graph .sg-head { fill: var(--muted); }
+.state-graph text { font-size: 11px; fill: var(--ink-2); font-variant-numeric: tabular-nums;
+  paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
+.state-graph .sg-unreached { margin: var(--sp-1) 0 0; display: flex; flex-wrap: wrap; gap: 0 var(--sp-2); align-items: baseline; }
+.state-graph.states { margin: var(--sp-1) 0 0; }

@@ -3675,7 +3675,19 @@ order:
 1. *The projection's bar*, drawn by the one `ProjectionBar` (`web/ui/src/components/items.tsx`) that draws each projection's bar on the Items page,
    with the same markup apart from its heading's level (the page's `h1` here) and its disclosure's open state: the
    title (its name small), id pattern, description, `finishes: S, …` or `lives on` (where that came from on hover),
-   the state chips with their counts, the total, and `in SYSTEM` (why on hover). The Items page draws these bars in
+   its graph of states, the total, and `in SYSTEM` (why on hover). The graph of states (`StateGraph.tsx`; 2026-11-28, the
+   owner: the declared list with an arrow between neighbours drew moves that never happen) is the moves its items have
+   made, not the order `values:` lists them in: a chip per state with how many items are in it now, an arrow from one
+   state to another only when some item has made that move, with how many times (none for a move that never happened,
+   however the states are listed), the arrivals (items whose first move put them in a state) as an entry from the left
+   with their count, and its finishing states (`finished:`, `final:`) boxed double. It is laid out left to right in the
+   order items pass through: each state after the states that lead into it, so a side exit (refused, superseded)
+   branches off where it leaves, and a move back to an earlier state (a reopening) is a dashed back edge under the
+   chips; the states no item has reached follow in one muted line (*not reached yet*). The moves are the listing's
+   `moves` (`GET /api/items`, each projection's `[{from, to, n}]`, `from` null for an arrival, the most first), which
+   the item index counts as it folds them (its `steps` table, a lease's hold taken out), so drawing it never reads the
+   record; `ergostat item` prints them under each projection's counts (`made → checked 10, checked → superseded 7, …`).
+   With no moves known (a draft, a record kept nowhere) the chips are drawn alone, with no arrows. The Items page draws these bars in
    every projection's list (`/items?view=list`, a search); its bare overview draws cards, whose name links here too. A chip
    filters the list in place (`/K?state=S` in the address, a second click clears it), the same on both pages;
    the title links to the projection's page; in every projection's list the disclosure hides or shows that projection's list in place.

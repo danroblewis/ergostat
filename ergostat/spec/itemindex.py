@@ -15,6 +15,8 @@ folds only what is newer than it.
   items reads only its window, and a count of items in a state reads only that state.
 - ``left`` and ``reached``: each kind's states some item has left, and has reached, so what a kind
   counts as finished is known without reading every move.
+- ``steps``: each kind's count of each move from one state to another (from none: arrivals), kept as moves are
+  folded and taken out with them, a lease's hold taken out: the list's graph of states reads it, never ``moves``.
 - ``items.text``: its searchable text (``items.text_of``: its fields' strings, casefolded, capped), on its own row, so
   written and replaced with it: an item has no text row to lose.
 - ``links``: every item's relations to other items (SPEC §5a, *Relations*), one row per link (the item, the
@@ -96,6 +98,7 @@ create table if not exists moves (rid integer, kind integer, t real, frm integer
 create index if not exists moves_rid on moves(rid);
 create index if not exists moves_dst on moves(kind, dst, t);
 create index if not exists moves_frm on moves(kind, frm, t);
+create table if not exists steps (kind integer, frm integer, dst integer, n integer, primary key (kind, frm, dst)) without rowid;
 create table if not exists left (kind integer, state integer, primary key (kind, state)) without rowid;
 create table if not exists reached (kind integer, state integer, primary key (kind, state)) without rowid;
 create table if not exists links (rid integer, rel integer, dst text);
@@ -123,6 +126,31 @@ create index if not exists {i}_last on {t}(last);
 create index if not exists {i}_textless on {t}(rid) where text is null;
 create index if not exists {i}_newest on {t}(newest);
 """
+
+
+def _steps_from_moves(c: sqlite3.Connection) -> None:
+    """``steps`` counted from ``moves`` once, for an index file made before it was kept (each item's moves in order, a
+    lease's hold taken out as ``ItemIndex._count_moves`` does)."""
+    r = c.execute("select id from names where name = 'leased'").fetchone()
+    ls = r[0] if r else -1
+    got: dict[tuple, int] = {}
+    rid0, back = None, None
+    for rid, kn, f, d in c.execute("select rid, kind, frm, dst from moves order by rid, rowid"):
+        if rid != rid0:
+            rid0, back = rid, None
+        if d == ls:
+            if f != ls:
+                back = f
+            continue
+        if f == ls:
+            f = back
+        if f != d:
+            got[(kn, f or 0, d)] = got.get((kn, f or 0, d), 0) + 1
+    c.execute("begin")
+    c.execute("delete from steps")
+    c.executemany("insert into steps(kind, frm, dst, n) values (?,?,?,?)", [(*k, n) for k, n in got.items()])
+    c.execute("insert into meta(key, value) values ('steps', 1) on conflict(key) do update set value = excluded.value")
+    c.execute("commit")
 
 
 def table_of(kind: str | None) -> str:
@@ -359,6 +387,8 @@ class Index:
                 c.execute("pragma temp_store=memory")
                 c.executescript(SCHEMA + layout(self.kinds) + projections.SCHEMA)   # (an older layout is another file:
                 #                                                                       its name holds VERSION)
+                if c.execute("select 1 from meta where key = 'steps'").fetchone() is None:
+                    _steps_from_moves(c)                       # (a file from before ``steps``: counted once, here)
             except BaseException:
                 c.close()
                 raise
@@ -559,13 +589,13 @@ class Index:
         return finished
 
     def _reset(self) -> None:
-        for t in (*self.tables(), "moves", "left", "reached", "links", "number_log", "numbers", "names", "meta", "event_counts",
+        for t in (*self.tables(), "moves", "steps", "left", "reached", "links", "number_log", "numbers", "names", "meta", "event_counts",
                   "carried", "emits", *projections.TABLES):
             self.db.execute(f"delete from {t}")
         self.names, self.rnames = {None: None}, {None: None}
         self.cache.clear()
         self._left.clear()
-        self._set_meta(version=VERSION, epoch=uuid.uuid4().hex)   # (what follows its rows sees it was made again: counts.py)
+        self._set_meta(version=VERSION, epoch=uuid.uuid4().hex, steps=1)   # (what follows its rows sees it was made again: counts.py)
 
     def _reconcile(self, events) -> None:
         """After events were taken out: an item none of whose events is left is forgotten."""
@@ -576,6 +606,7 @@ class Index:
         if gone:
             from ..itemmetrics import carry
             carry(self.db, [r[0] for r in gone], self.name, time.time())   # what they counted, kept (and their move to (gone))
+            self._unstep([r[0] for r in gone])
             self.db.executemany("delete from moves where rid = ?", gone)
             self.db.executemany("delete from links where rid = ?", gone)
             self.db.executemany("delete from number_log where rid = ?", gone)
@@ -653,6 +684,7 @@ class Index:
                 self.db.execute(f"update {t} set kind=?, state=?, first=?, last=?, newest=?, entered=?, n=?, latest=?, "
                                 "arrived=?, raw=?, raw_first=?, body=?, text=? where rid=?", (*values, rid))
             if restored:
+                self._unstep([rid])
                 self.db.execute("delete from moves where rid = ?", (rid,))
             self._keep_numbers(rid, it, numbered, renumbered)
             if k is not None and (k.relations or k.about):     # its links, as its fields now hold them
@@ -663,6 +695,7 @@ class Index:
                                         [(rid, self.nid(r), t) for r, t in got])
             if it.moves:
                 kn = self.nid(it.kind)
+                self._count_moves(rid, kn, [(self.nid(m["from"]), self.nid(m["to"])) for m in it.moves])
                 self.db.executemany("insert into moves(rid, kind, t, frm, dst, event, type) values (?,?,?,?,?,?,?)",
                                     [(rid, kn, m["time"], self.nid(m["from"]), self.nid(m["to"]), m["event"], self.nid(m["type"]))
                                      for m in it.moves])
@@ -681,6 +714,43 @@ class Index:
         if published:                                       # its outbox, in this transaction: the engine records them
             self.db.executemany("insert into emits(projection, ev) values (?, ?)",
                                 [(x["data"]["projection"], json.dumps(x, default=str)) for x in published])
+
+    def _count_moves(self, rid: int, kn: int | None, pairs: list[tuple], sign: int = 1, back: int | None = -1) -> None:
+        """The kind's count of each move from one state to another, kept as moves are folded (``steps``: read per page
+        view, so never a scan of ``moves``), a lease's hold taken out as ``transitions`` does. ``back``: the state the
+        item was leased from, -1 when it is to be looked up (its last move into ``leased``, before these)."""
+        ls = self.names.get("leased", -1)
+        got: dict[tuple, int] = {}
+        for f, d in pairs:
+            if d == ls:
+                if f != ls:
+                    back = f
+                continue
+            if f == ls:
+                if back == -1:
+                    r = self.db.execute("select frm from moves where rid = ? and dst = ? and frm is not ? order by rowid desc "
+                                        "limit 1", (rid, ls, ls)).fetchone()
+                    back = r[0] if r else None
+                f = back
+            if f != d:
+                got[(f or 0, d)] = got.get((f or 0, d), 0) + sign
+        if got:
+            self.db.executemany("insert into steps(kind, frm, dst, n) values (?,?,?,?) "
+                                "on conflict(kind, frm, dst) do update set n = n + excluded.n",
+                                [(kn, f, d, n) for (f, d), n in got.items()])
+
+    def _unstep(self, rids: list[int]) -> None:
+        """Their moves taken out of ``steps`` (before the moves are deleted)."""
+        by: dict[int, tuple] = {}
+        for i in range(0, len(rids), 500):
+            part = rids[i:i + 500]
+            for rid, kn, f, d in self.db.execute(f"select rid, kind, frm, dst from moves where rid in "
+                                                 f"({','.join('?' * len(part))}) order by rid, rowid", part):
+                by.setdefault(rid, (kn, []))[1].append((f, d))
+        for rid, (kn, pairs) in by.items():
+            self._count_moves(rid, kn, pairs, -1, None)
+        if by:
+            self.db.execute("delete from steps where n <= 0")
 
     def _keep_numbers(self, rid: int, it: Item, rows: list[tuple], restored: bool) -> None:
         """An item's changes of its numeric fields written (``restored``: a snapshot's history in place of what was
@@ -754,6 +824,16 @@ class Index:
         """The states of ``kind`` some item has reached."""
         k = self.known(kind)
         return {self.name(s) for (s,) in self.db.execute("select state from reached where kind = ?", (k,))}
+
+    @_healing
+    def steps(self, kind: str) -> list[dict]:
+        """How many times ``kind``'s items moved from one state to another (``from`` none: arrived in ``to``), the most
+        first: the counts kept as the moves were folded (``_step``), a lease's hold taken out."""
+        k = self.known(kind)
+        if k == -1:
+            return []
+        rows = self.db.execute("select frm, dst, n from steps where kind = ? and n > 0 order by n desc", (k,)).fetchall()
+        return [{"from": self.name(f) if f else None, "to": self.name(d), "n": n} for f, d, n in rows]
 
     @_healing
     def changed_after(self, t: float | None) -> bool:
