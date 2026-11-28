@@ -1,12 +1,14 @@
 """The projection workbench's page (docs/roadmap/projection-workbench.md; SPEC §5a, *The workbench*), in Chromium, on a
 record of the EC2 simulator (tests/fixtures/ec2_stream.py, batch mode): a new projection made from the nav bar's +
-through its five steps (its key set at the top of the panel on the right before any mapping, a new field made there;
-what it is: its fields, and the key picked from them in order; the query, what each change added and dropped, and Accept all
+through its five steps, an accordion with one open at a time (0 the schema: its fields; its key, at the top of the panel on the right before any mapping, pills
+of the declared fields added with + and taken out with ×; the YAML at the very bottom of the page, below the item list;
+the query, what each change added and dropped, and Accept all
 right after its count, no suggestion left that takes nothing; the mapping: each kind's key solved from its key fields
 (✓ or ✗ a part, a ✗ clicked to map it), a value hovered opening a floating panel that goes when the pointer leaves, a
 value clicked keeping it, a field made from a pick, another kind mapped the same way at once and one taken back, a path
-ignored in every kind's events; the review, and the panel on the right: its objects stepped with ‹ ›, the lifecycle,
-the distributions, the residual at the bottom with no 0 shown), saved with its dated comments and reopened on its
+ignored in every kind's events; the review, and the panel on the right: its samples (objects) stepped with ‹ ›, the lifecycle,
+the distributions above the objects, an object's events in a fixed-height scrolling box, the residual at the bottom with no
+0 shown), saved with its dated comments and reopened on its
 review; a kind folding itself once every path is mapped, Enter and Escape on the floating panel, the objects stepped
 and found, and a reload keeping the draft; a new projection surviving a change to the address (the bug that lost a
 draft: a search dropped the history state saying it was new) and a reload; a projection with nothing unexplained (one
@@ -59,7 +61,7 @@ def served(tmp_path, request):
 
 
 def query_box(pg):
-    return pg.locator("[data-step='2'] .cm-content")
+    return pg.locator("[data-step='1'] .cm-content")
 
 
 def number(pg, testid: str) -> int:
@@ -86,37 +88,62 @@ def test_a_new_projection_is_made_in_the_workbench_saved_and_reopened_on_its_rev
     pg.get_by_label("The new projection's name").fill("instance")
     pg.keyboard.press("Enter")
     pg.wait_for_url("**/instance", timeout=WAIT)
-    pg.locator("[data-step='5'] .wb-step-head").wait_for(timeout=WAIT)
+    pg.locator("[data-step='4'] .wb-step-head").wait_for(timeout=WAIT)
     steps = pg.locator(".wb-step-head button").all_inner_texts()
-    assert [s.split(" ", 1)[1] for s in steps] == ["What it is", "Query", "Kinds of event", "Mapping", "Review"]
+    assert steps == ["0 Schema", "1 Query", "2 Kinds of event", "3 Mapping", "4 Review"]
+    # an accordion: a new projection opens on its schema, the only step open; each closed one says its state
 
-    # its key, at the top of the panel on the right, set before anything is mapped: a new field made there
+    # the YAML at the very bottom of the page: below the steps and below the page's own panels (the item list)
     side = pg.locator("aside.wb-side")
-    assert side.locator("section.wb-keyside").bounding_box()["y"] <= side.bounding_box()["y"] + 40
-    side.get_by_label("A new key field's name").fill("account")
-    side.get_by_role("button", name="Add to the key").click()
-    yaml_has(pg, "key: account")
-    assert "account: {type: text}" in pg.locator(".wb-yaml .cm-content").inner_text()
+    pg.locator(".panel-kind-item-list").wait_for(timeout=WAIT)
+    ys = [pg.locator(x).first.bounding_box()["y"] for x in ("[data-step='4']", ".panel-kind-item-list", "section.wb-yaml")]
+    assert ys == sorted(ys)
+    assert pg.locator("section.wb-yaml").evaluate("e => !e.nextElementSibling && e.parentElement.classList.contains('projection-page')")
 
-    # 1. what it is: its fields, and the key picked from them, in order
-    for f in ("state", "instance_type", "region", "instance_id"):
+    assert pg.locator(".wb-step.open").count() == 1 and pg.locator("[data-step='0'].open").count() == 1
+    assert "type.startswith('instance.')" in pg.locator("[data-step='1'] .wb-said").inner_text()       # closed, it says its query
+
+    # 0. the schema: its fields
+    for f in ("account", "state", "instance_type", "region", "instance_id"):
         pg.get_by_label("A new field's name").fill(f)
         pg.get_by_role("button", name="Add a field").click()
         pg.get_by_label(f"The name of {f}").wait_for(timeout=WAIT)
     pg.get_by_label("The values of state").fill(STATES)
     pg.keyboard.press("Enter")
     yaml_has(pg, "values: [pending")
-    for f in ("instance_id", "region"):
-        pg.get_by_label("Add a field to the key").select_option(f)
+    # its key, at the top of the panel on the right, set before anything is mapped: pills on one line, + adds a field
+    # declared and not yet in it, × takes one out; the order the YAML keeps is the order they were added in
+    assert side.locator("section.wb-keyside").bounding_box()["y"] <= side.bounding_box()["y"] + 40
+    keyside = side.locator("section.wb-keyside")
+    assert keyside.get_by_role("button", name="Move", exact=False).count() == 0 and keyside.locator("input").count() == 0
+    for f in ("account", "instance_id", "region"):
+        keyside.get_by_role("button", name="Put a field in the key").click()
+        menu = keyside.get_by_role("menu", name="The fields not in the key")
+        assert f in menu.inner_text()
+        menu.get_by_role("menuitem", name=f, exact=True).click()
     yaml_has(pg, "key: [account, instance_id, region]")
-    pg.get_by_role("button", name="Move region up").click()
+    keyside.get_by_role("button", name="Put a field in the key").click()
+    menu = keyside.get_by_role("menu", name="The fields not in the key")
+    assert sorted(menu.get_by_role("menuitem").all_inner_texts()) == ["instance_type", "state"]       # those not in the key
+    pg.keyboard.press("Escape")
+    keyside.get_by_role("button", name="Take instance_id out of the key").click()
+    yaml_has(pg, "key: [account, region]")
+    keyside.get_by_role("button", name="Put a field in the key").click()
+    keyside.get_by_role("menuitem", name="instance_id", exact=True).click()
     yaml_has(pg, "key: [account, region, instance_id]")
-    assert pg.locator("ol[aria-label=\"The projection's key\"] li code").all_inner_texts() == ["account", "region", "instance_id"]
+    pills = keyside.locator("ul[aria-label=\"The projection's key\"] li.wb-keypill")
+    assert pills.locator("code").all_inner_texts() == ["account", "region", "instance_id"]
+    assert len({round(pills.nth(i).bounding_box()["y"]) for i in range(3)}) == 1                       # on one line
 
-    # 2. the query: its count, and what a change added and dropped
+    # 1. the query, opened: the schema closes, its header saying what it holds
+    pg.locator("[data-step='1'] .wb-step-head button").click()
+    pg.locator("[data-step='0'].open").wait_for(state="detached", timeout=WAIT)
+    assert pg.locator(".wb-step.open").count() == 1
+    assert "5 fields, keyed by account / region / instance_id" in pg.locator("[data-step='0'] .wb-said").inner_text()
+    # its count, and what a change added and dropped
     query_box(pg).wait_for(timeout=WAIT)
     query_box(pg).fill("data.source == 'aws.ec2'")
-    pg.wait_for_function("() => document.querySelector('[data-testid=query-total]')?.textContent.length > 0", timeout=WAIT)
+    pg.wait_for_function("() => +(document.querySelector('[data-testid=query-total]')?.textContent || '0').replace(/,/g, '') > 100", timeout=WAIT)
     total = number(pg, "query-total")
     assert total > 100 and "index" in pg.locator("[data-testid=query-how]").inner_text()
     query_box(pg).fill("data.source == 'aws.ec2' and data.detail.eventName != 'CreateTags'")
@@ -125,21 +152,23 @@ def test_a_new_projection_is_made_in_the_workbench_saved_and_reopened_on_its_rev
     said = pg.locator("[data-testid=query-compare]").inner_text()
     assert "+0" in said and f"−{total - number(pg, 'query-total')}" in said
     # the newest events are folded; opened, a value clicked narrows the query by it
-    assert not pg.locator("[data-step='2'] .wb-events").is_visible()
-    pg.locator("[data-step='2'] .wb-newest > summary").click()
-    pg.locator("[data-step='2'] .wb-events summary").first.click()
-    pg.locator("[data-step='2'] button[data-path='[\"data\",\"source\"]']").first.click()
+    assert not pg.locator("[data-step='1'] .wb-events").is_visible()
+    pg.locator("[data-step='1'] .wb-newest > summary").click()
+    pg.locator("[data-step='1'] .wb-events summary").first.click()
+    pg.locator("[data-step='1'] button[data-path='[\"data\",\"source\"]']").first.click()
     pg.get_by_role("button", name="and data.source == 'aws.ec2'").click()
-    pg.wait_for_function("() => document.querySelector(\"[data-step='2'] .cm-content\").textContent.endsWith(\"and data.source == 'aws.ec2'\")", timeout=WAIT)
+    pg.wait_for_function("() => document.querySelector(\"[data-step='1'] .cm-content\").textContent.endsWith(\"and data.source == 'aws.ec2'\")", timeout=WAIT)
     query_box(pg).fill("data.source == 'aws.ec2'")
 
     # right after the count: what the kinds it holds cover, and Accept all; then every event taken, no suggestion left
-    line = pg.locator("[data-step='2'] [data-testid=accept-line]")
+    line = pg.locator("[data-step='1'] [data-testid=accept-line]")
     pg.wait_for_function("() => /cover 100% of these events/.test(document.querySelector('[data-testid=accept-line]')?.textContent || '')", timeout=WAIT)
-    assert pg.locator("[data-step='2'] .wb-count + [data-testid=accept-line]").count() == 1
+    assert pg.locator("[data-step='1'] .wb-count + [data-testid=accept-line]").count() == 1
     line.get_by_role("button", name="Accept all").click()
-    pg.locator("[data-testid=all-taken]").wait_for(timeout=WAIT)                     # no 0 shown: a check
     pg.wait_for_function("() => /All events taken by \\d+ kinds/.test(document.querySelector('[data-testid=accept-line]')?.textContent || '')", timeout=WAIT)
+    # 2. the kinds of event
+    pg.locator("[data-step='2'] .wb-step-head button").click()
+    pg.locator("[data-testid=all-taken]").wait_for(timeout=WAIT)                     # no 0 shown: a check
     kinds = pg.locator("table[aria-label='Its kinds of event'] tbody tr")
     assert kinds.count() >= 5
     assert pg.locator("ul[aria-label='The remainder, by shape']").count() == 0          # no suggestion that takes nothing
@@ -147,9 +176,13 @@ def test_a_new_projection_is_made_in_the_workbench_saved_and_reopened_on_its_rev
     assert "0" not in takes and "" not in takes
     assert f"{CHANGE}:" in pg.locator(".wb-yaml .cm-content").inner_text()
 
-    assert pg.locator("[data-testid^=key-missing-]").count() >= 5     # each kind that doesn't tell the key says so, on the left
-
-    # 4. the mapping: a value hovered opens a floating panel by it, gone once the pointer leaves; a value clicked keeps it
+    # 3. the mapping: each kind that doesn't tell the key says so, on the left
+    pg.locator("[data-step='3'] .wb-step-head button").click()
+    pg.locator("[data-step='3'].open").wait_for(timeout=WAIT)
+    assert pg.locator(".wb-step.open").count() == 1
+    pg.locator("[data-testid^=key-missing-]").first.wait_for(timeout=WAIT)
+    assert pg.locator("[data-testid^=key-missing-]").count() >= 5
+    # a value a value hovered opens a floating panel by it, gone once the pointer leaves; a value clicked keeps it
     change = kind_box(pg, CHANGE)
     state_value = change.locator(".wb-sample button[data-path='[\"data\",\"detail\",\"state\"]']")
     state_value.hover(timeout=WAIT)
@@ -224,12 +257,15 @@ def test_a_new_projection_is_made_in_the_workbench_saved_and_reopened_on_its_rev
     pg.keyboard.press("Enter")
     run_key.get_by_text("instance_id ✓ each(").wait_for(timeout=WAIT)
 
-    # 5. the review, and the panel on the right: its objects one at a time, the lifecycle, the fields, the residual (no
+    # 4. the review, and the panel on the right: its samples (its objects) one at a time, the lifecycle, the fields, the residual (no
     # 0 shown) at the bottom
     pg.locator("[data-testid=lifecycle-state]").wait_for(timeout=WAIT)
     pg.wait_for_function("() => [...document.querySelectorAll('.wb-side .wb-dist h4')].some((h) => h.textContent.includes('instance_type'))", timeout=WAIT)
     pg.wait_for_function("() => document.querySelector('[data-testid=lifecycle-state]').textContent.includes('running')", timeout=WAIT)
+    pg.locator("[data-step='4'] .wb-step-head button").click()
+    pg.locator("[data-testid=review-objects]").wait_for(timeout=WAIT)
     assert number(pg, "review-objects") > 5
+    assert pg.locator(".wb-step.open").count() == 1
     residual = side.locator("ul[aria-label='The residual']").inner_text()
     assert "no key" in residual and "remainder" not in residual                          # its 0 not shown
     side.locator("ul[aria-label='The residual'] li", has_text="no key").locator("summary").click()
@@ -254,8 +290,13 @@ def test_a_new_projection_is_made_in_the_workbench_saved_and_reopened_on_its_rev
     box = side.bounding_box()
     assert box and box["x"] > 700                                                        # on the right
     order = [side.locator(x).first.bounding_box()["y"] for x in
-             ("section.wb-keyside", "section.wb-objects", ".wb-dist", ".wb-residual-h")]
-    assert order == sorted(order)                                                        # key, objects, fields, residual
+             ("section.wb-keyside", ".wb-fields-h", ".wb-dist", "section.wb-objects", ".wb-residual-h")]
+    assert order == sorted(order)                                                        # key, fields, objects, residual
+    assert side.locator("section.wb-objects h2").inner_text().startswith("Samples")
+    assert "Its objects" not in side.inner_text()
+    hist = side.locator("[data-testid=object-history]")                                  # its events: fixed height, scrolling
+    assert hist.evaluate("e => [getComputedStyle(e).maxHeight, getComputedStyle(e).overflowY]") == ["288px", "auto"]
+    assert hist.locator("table[aria-label=\"The object's timeline\"]").count() == 1
 
     # Save: the YAML written with its dates; reopened, it lands on its review
     assert "instance:" not in p.model.path.read_text()
@@ -264,8 +305,8 @@ def test_a_new_projection_is_made_in_the_workbench_saved_and_reopened_on_its_rev
     text = p.model.path.read_text()
     assert "  instance:\n" in text and "# updated" in text and "state: data.detail.state" in text and "ignore: [type]" in text
     pg.get_by_role("button", name="Edit", exact=True).click()
-    pg.locator("[data-step='5'].wb-step.open [data-testid=review-objects]").wait_for(timeout=WAIT)
-    assert pg.locator("[data-step='2'].open").count() == 0
+    pg.locator("[data-step='4'].wb-step.open [data-testid=review-objects]").wait_for(timeout=WAIT)
+    assert pg.locator("[data-step='1'].open").count() == 0
     assert settled(pg) == []
     pg.close()
 
@@ -339,13 +380,14 @@ def test_an_existing_projection_reopened_shows_events_of_a_new_shape_in_its_rema
             "region": "us-east-1", "detail": {"instance-id": f"i-spot{i}", "instance-action": "terminate"}})
     pg = opened(browser, url + "/instance")
     pg.get_by_role("button", name="Edit", exact=True).first.click()
-    pg.locator("[data-step='5'].open [data-testid=review-objects]").wait_for(timeout=WAIT)
+    pg.locator("[data-step='4'].open [data-testid=review-objects]").wait_for(timeout=WAIT)
     rem = pg.locator("ul[aria-label='The residual'] li", has_text="remainder")
     assert rem.locator(".wb-kind-n").first.inner_text() == "3"
     rem.locator("summary").click()
     assert "Spot Instance Interruption" in rem.inner_text()
     assert "3 remainder" in pg.locator("[data-testid=unexplained]").inner_text()
-    pg.locator("[data-step='3'] .wb-step-head button").click()             # step 3 shows it too, acceptable as a kind
+    pg.locator("[data-step='2'] .wb-step-head button").click()             # step 2 shows it too, acceptable as a kind
+    assert pg.locator(".wb-step.open").count() == 1                         # the review closed
     assert pg.locator("[data-testid=remainder-count]").inner_text() == "3"
     assert "Spot Instance Interruption" in pg.locator("ul[aria-label='The remainder, by shape']").inner_text()
     assert settled(pg) == []
@@ -389,7 +431,7 @@ def test_a_kind_folds_once_every_path_is_mapped_the_objects_are_stepped_and_a_re
     p, url = things
     pg = opened(browser, url + "/thing")
     pg.get_by_role("button", name="Edit", exact=True).first.click()
-    pg.locator("[data-step='4'] .wb-step-head button").click()
+    pg.locator("[data-step='3'] .wb-step-head button").click()
     made = kind_box(pg, "made")
     n_value = made.locator(".wb-sample button[data-path='[\"data\",\"n\"]']")
     n_value.wait_for(timeout=WAIT)
@@ -432,7 +474,7 @@ def test_a_kind_folds_once_every_path_is_mapped_the_objects_are_stepped_and_a_re
     pg.locator(".wb-yaml .cm-content").wait_for(timeout=WAIT)
     yaml_has(pg, "n: data.n")
     assert "n: data.n" not in p.model.path.read_text()
-    assert pg.locator("[data-step='4'].open").count() == 1                               # the steps as they were
+    assert pg.locator("[data-step='3'].open").count() == 1                               # the steps as they were
     pg.get_by_role("button", name="Cancel", exact=True).click()
     pg.reload()
     pg.get_by_role("button", name="Edit", exact=True).first.wait_for(timeout=WAIT)
@@ -509,7 +551,7 @@ def test_no_key_refused_and_a_split_open_their_events_in_the_mapping_until_fixed
     p, url = served
     pg = opened(browser, url + "/instance")
     pg.get_by_role("button", name="Edit", exact=True).first.click()
-    pg.locator("[data-step='5'].open [data-testid=review-objects]").wait_for(timeout=WAIT)
+    pg.locator("[data-step='4'].open [data-testid=review-objects]").wait_for(timeout=WAIT)
     unexplained_has(pg, "no key")
     side = pg.locator("aside.wb-side")
 
@@ -540,9 +582,11 @@ def test_no_key_refused_and_a_split_open_their_events_in_the_mapping_until_fixed
     assert "refused events" in banner.inner_text() and 'state: "stopping" is not one of its states' in banner.inner_text()
     assert change.locator(".wb-sample .jv-flag").first.inner_text() == '"stopping"'
     assert change.locator("tr.wb-hl th").inner_text() == "state"
-    pg.locator("[data-step='1'] .wb-step-head button").click()
+    pg.locator("[data-step='0'] .wb-step-head button").click()                 # the schema: the mapping closes
+    assert pg.locator("[data-step='3'].open").count() == 0
     pg.get_by_label("The values of state").fill("pending, running, stopping, stopped, shutting-down, terminated")
     pg.keyboard.press("Enter")
+    pg.locator("[data-step='3'] .wb-step-head button").click()
     change.locator("[data-testid=opened-state-change]", has_text="✓ fixed").wait_for(timeout=WAIT)
     assert change.locator(".wb-sample .jv-flag").count() == 0                                   # its usual samples
     unexplained_has(pg, "refused", False)

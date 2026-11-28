@@ -1,5 +1,5 @@
-/* The projection workbench (Workbench.tsx): its steps in the main column, the YAML below them, its panel on the right
-   (sticky, scrolling on its own; below the steps when narrow); tokens only. */
+/* The projection workbench (Workbench.tsx): its steps in the main column, its panel on the right (sticky, scrolling on
+   its own; below the steps when narrow), the YAML at the very bottom of the page; tokens only. */
 .wb { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--sp-4); margin: 0 0 var(--sp-4); align-items: start; }
 @media (max-width: 1000px) { .wb { grid-template-columns: minmax(0, 1fr); } .wb .wb-side { position: static; max-height: none; } }
 .wb-main { min-width: 0; overflow-wrap: anywhere; }
@@ -8,8 +8,8 @@
 .wb-side h2 { margin: var(--sp-3) 0 var(--sp-1); }
 .wb-side h2:first-child { margin-top: 0; }
 .wb-side .wb-dists { grid-template-columns: minmax(0, 1fr); }
-.wb-yaml { margin: var(--sp-3) 0 0; min-width: 0; }
-.wb .wb-yaml h2 { margin: 0 0 var(--sp-1); }
+.wb-yaml { margin: var(--sp-4) 0 0; min-width: 0; }
+.wb-yaml h2 { margin: 0 0 var(--sp-1); }
 .wb-yaml .qe-box .cm-scroller { min-height: 16em; max-height: 75vh; }
 .wb-setpoint { margin: 0 0 var(--sp-2); padding: var(--sp-2) var(--sp-3); background: var(--chrome); border: var(--hair) solid var(--line); border-radius: var(--radius); }
 .wb-step { border: var(--hair) solid var(--line); border-radius: var(--radius); margin: 0 0 var(--sp-2); }
@@ -54,9 +54,13 @@
 .wb-plot .panel-plot { width: 100%; height: 100%; }
 .wb-since { white-space: nowrap; }
 
-.wb-keyparts { margin: var(--sp-1) 0 0; padding-left: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-1); }
-.wb-keyparts li { display: flex; gap: var(--sp-1); align-items: center; }
-.wb-keyfields select { margin-top: var(--sp-1); }
+.wb-keypills { list-style: none; margin: var(--sp-1) 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-1); align-items: center; }
+.wb-keypill { gap: var(--sp-1); padding: 0 0 0 var(--sp-2); }
+.wb-keyadd { position: relative; }
+.wb-keyadd > button { padding: 0 var(--sp-2); font-weight: 600; }
+.wb-keymenu { position: absolute; z-index: 5; left: 0; top: 100%; min-width: 12em; max-height: 16rem; overflow: auto; list-style: none; margin: var(--sp-0) 0 0;
+  padding: var(--sp-1); background: var(--bg); border: var(--hair) solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--shadow-menu); }
+.wb-keymenu button { display: block; width: 100%; text-align: left; }
 .wb-solved { display: inline-flex; flex-wrap: wrap; gap: 0 var(--sp-1); align-items: baseline; }
 .wb-key-no button { padding: 0 var(--sp-1); }
 
@@ -86,8 +90,6 @@ li.jv-ignored, .jv-val.jv-ignored { opacity: 0.5; text-decoration: line-through;
 .wb-same-from { display: block; }
 .wb-same-one button { padding: 0 var(--sp-0); }
 .wb-keyside { margin: 0 0 var(--sp-2); }
-.wb-newkey { margin: var(--sp-1) 0 0; align-items: center; }
-.wb-newkey input { width: 10em; }
 .wb-browse { align-items: center; margin: var(--sp-1) 0; }
 .wb-browse input { min-width: 8em; }
 
@@ -99,3 +101,7 @@ li.jv-ignored, .jv-val.jv-ignored { opacity: 0.5; text-decoration: line-through;
 .wb-sample .jv-val.jv-flag { background: var(--warn-wash); border-color: var(--warn); }
 .jv-flagged { color: var(--warn); font-size: var(--text-sm); }
 .wb-setpoint button.ghost { padding: 0; text-decoration: underline dotted; text-underline-offset: var(--sp-0); }
+/* an object's events in the panel on the right: a box of its own height, scrolling, so a long history does not grow the panel */
+.wb-history { max-height: 18rem; overflow: auto; border: var(--hair) solid var(--line); border-radius: var(--radius); }
+.wb-history .wb-table { margin: 0; }
+.wb-history thead th { position: sticky; top: 0; background: var(--bg); }

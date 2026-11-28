@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Draft } from "./draft";
 import { n, Samples } from "./common";
 
-/* Step 3, the kinds of event: its `events:` entries (each renamed, its `when:` edited, removed, with what it takes),
+/* Step 2, the kinds of event: its `events:` entries (each renamed, its `when:` edited, removed, with what it takes),
    and the events no kind takes yet, by shape (POST /api/events/kinds given the kinds' `when:`s: only shapes that would
    take an event), each accepted as a kind. */
 
@@ -49,7 +49,7 @@ export function KindsStep({ draft, review, sugg, editable, onAdd, onRename, onWh
 
   return (
     <>
-      {draft.kinds.length === 0 ? <p className="muted">None yet: accept the kinds the query's result holds, below (or all of them, in step 2).</p> : (
+      {draft.kinds.length === 0 ? <p className="muted">None yet: accept the kinds the query's result holds, below (or all of them, in step 1).</p> : (
         <table className="wb-table" aria-label="Its kinds of event">
           <thead><tr><th>Name</th><th>when: <span className="muted">(the first that holds takes an event)</span></th><th>Takes</th><th /></tr></thead>
           <tbody>{draft.kinds.map((k) => (
@@ -70,7 +70,7 @@ export function KindsStep({ draft, review, sugg, editable, onAdd, onRename, onWh
         <h3 className="small">Not taken yet <strong data-testid="remainder-count">{left == null ? "–" : n(left)}</strong>
           {" "}<span className="muted">events no kind takes, by shape</span></h3>
       )}
-      {!draft.query.trim() ? <p className="muted">Type a query first (step 2).</p> : sugg.error ? <p className="note lvl-error">{sugg.error}</p>
+      {!draft.query.trim() ? <p className="muted">Type a query first (step 1).</p> : sugg.error ? <p className="note lvl-error">{sugg.error}</p>
         : !s ? (left === 0 ? null : <p className="muted">Reading…</p>)
         : fresh.length === 0 ? null : (
           <>

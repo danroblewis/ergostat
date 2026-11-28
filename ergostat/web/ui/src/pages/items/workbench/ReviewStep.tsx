@@ -4,7 +4,7 @@ import { stamp } from "../../../lib/format";
 import { n, Samples, short } from "./common";
 import { howRead } from "./QueryStep";
 
-/* The review (POST /api/projections/review on the draft): step 5 in the main column (what the draft makes, what each
+/* The review (POST /api/projections/review on the draft): step 4 in the main column (what the draft makes, what each
    kind took, the paths left to decide, the comparison with the saved definition), and the panel on the right (one
    object's record and lifespan, the residual, the lifecycles, every field's distribution). What is unexplained is
    counted in `unexplained`, which the workbench keeps in sight above the steps; a 0 is never shown. */
@@ -95,6 +95,7 @@ function Lifespan({ t }: { t: any }) {
         {Object.entries(t.fields || {}).map(([k, v]) => <li key={k}><span className="jv-key">{k}</span> <span className="jv-val">{short(v, 60)}</span></li>)}
       </ul>
       {path.length > 0 && <p className="small" data-testid="state-path">{path.join(" → ")}</p>}
+      <div className="wb-history" data-testid="object-history">
       <table className="wb-table" aria-label="The object's timeline">
         <thead><tr><th>Event time</th><th>Kind</th><th>What it changed</th></tr></thead>
         <tbody>{t.steps.map((s: any) => (
@@ -112,12 +113,13 @@ function Lifespan({ t }: { t: any }) {
           </tr>
         ))}</tbody>
       </table>
+      </div>
       {t.steps_left ? <p className="muted small">{n(t.steps_left)} more events.</p> : null}
     </>
   );
 }
 
-/** Step 5, the review in the main column: what the draft makes, what each kind took, the comparison with the saved
+/** Step 4, the review in the main column: what the draft makes, what each kind took, the comparison with the saved
     definition, and the paths no field reads yet (what is left to decide), each ignorable. */
 export function ReviewStep({ r, error, busy, onIgnore, editable }: {
   r: any; error: string | null; busy: boolean; onIgnore: (path: string) => void; editable: boolean;
@@ -199,7 +201,7 @@ function Objects({ r, item, onItem }: { r: any; item: string; onItem: (k: string
   const t = r.timeline;
   return (
     <section className="wb-objects" aria-label="Its objects">
-      <h2 className="small">Its objects <span className="muted">{n(r.objects.count)}</span></h2>
+      <h2 className="small">Samples <span className="muted">{n(r.objects.count)}</span></h2>
       {!keys.length ? <p className="muted small">None yet: no event is keyed to an object.</p> : (
         <>
           <div className="wb-row wb-browse">
@@ -219,8 +221,8 @@ function Objects({ r, item, onItem }: { r: any; item: string; onItem: (k: string
   );
 }
 
-/** The panel on the right, beside the steps: its key (set before any mapping), its objects one at a time, the
-    lifecycles and each field's distribution, and the residual at the bottom (only what is not 0; all 0, one check). */
+/** The panel on the right, beside the steps: its key (set before any mapping), each field's distribution and the
+    lifecycles, its samples (its objects) one at a time, and the residual at the bottom (only what is not 0; all 0, one check). */
 export function SidePanel({ r, item, onItem, keyPart, onOpen }: {
   r: any; item: string; onItem: (k: string) => void; keyPart: ReactNode;
   /** a residual group opened in the mapping step, its events there to map */
@@ -236,17 +238,17 @@ export function SidePanel({ r, item, onItem, keyPart, onOpen }: {
   return (
     <>
       {keyPart}
-      <Objects r={r} item={item} onItem={onItem} />
+      <h2 className="small wb-fields-h">Its fields, across the objects</h2>
+      {r.fields.length === 0 ? <p className="muted">No fields yet (step 0, the schema).</p> : (
+        <div className="wb-dists">{r.fields.map((f: any) => <Distribution key={f.field} f={f} />)}</div>
+      )}
 
       {Object.keys(r.lifecycles || {}).length > 0 && <h2 className="small">Lifecycles</h2>}
       <div className="wb-dists">
         {Object.entries(r.lifecycles || {}).map(([f, l]) => <Lifecycle key={f} field={f} l={l} />)}
       </div>
 
-      <h2 className="small">Its fields, across the objects</h2>
-      {r.fields.length === 0 ? <p className="muted">No fields yet (step 1).</p> : (
-        <div className="wb-dists">{r.fields.map((f: any) => <Distribution key={f.field} f={f} />)}</div>
-      )}
+      <Objects r={r} item={item} onItem={onItem} />
 
       <h2 className="small wb-residual-h">The residual</h2>
       {none ? <p data-testid="residual-ok">✓ Nothing unexplained</p> : (

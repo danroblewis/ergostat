@@ -9,7 +9,7 @@ import { Banner, type Live, type Opened } from "./opened";
 /** A residual group opened (opened.tsx): shown in the kinds it names, as their samples, until it is fixed. */
 export interface OpenedIn { o: Opened; live: Live | null; onUsual: () => void }
 
-/* Step 4, the mapping: per kind of event, its key as solved from what it maps to the key's fields (✓ each part's
+/* Step 3, the mapping: per kind of event, its key as solved from what it maps to the key's fields (✓ each part's
    expression, ✗ a part it does not tell, a click away from its mapping), one of its events shown as it reads (each
    value read into a field tagged with the field, a value nothing reads standing out, an ignored path hidden) beside
    the record that event makes. A value hovered (or clicked, or Enter on it) opens a panel floating by it: put it into a
@@ -34,7 +34,6 @@ export interface MappingEdits {
   ignore: (path: string) => void;
   setKey: (names: string[]) => void;
   /** a new field made and put at the end of the key, in one edit */
-  addKeyField: (name: string, type: string) => void;
 }
 
 /** Every path in an event (its parts' and all within them), and its values' paths alone. */
@@ -393,7 +392,7 @@ export function MappingStep({ draft, ed, editable, fold, opened }: {
         <label>The event's own time <Commit className="mono" value={draft.time} label="The event's own time" disabled={!editable}
           placeholder="the recorded time" onCommit={(v) => ed.setTop("time", v)} /></label>
       </p>
-      {draft.kinds.length === 0 ? <p className="muted">No kinds of event yet (step 3).</p>
+      {draft.kinds.length === 0 ? <p className="muted">No kinds of event yet (step 2).</p>
         : draft.kinds.map((k) => <KindMapping key={k.name} k={k} draft={draft} ed={ed} editable={editable} fold={fold}
           opened={opened?.o.in.includes(k.name) ? opened : null} />)}
     </>

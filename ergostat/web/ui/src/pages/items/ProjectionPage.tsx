@@ -11,18 +11,18 @@ import { apiSend } from "../../lib/api";
 import { draftKey, keptDrop, keptGet, keptSet, stepsKey } from "../../lib/kept";
 import { PROJECTION_PANELS } from "../../lib/pages";
 import { starter, useTry } from "./DefinitionEditor";
-import { Workbench } from "./workbench/Workbench";
+import { Workbench, WorkbenchYaml } from "./workbench/Workbench";
 
 /* /PROJECTION, a dashboard made in advance (kindpage.js): its bar as the page's heading (a state chip filters the
    list), then its panels: Now (projection-now: its states over the window and how long its finished took), In the
-   model (projection-model: what counts it, the goals and loops it is in), its definition (projection-definition), and its items
+   model (projection-model: what counts it, the goals and loops it is in), and its items
    (item-list: a page at a time, searched and sorted by the server). The page asks each answer once and hands it to
    its panels; the list's filters are in its head. Every choice is in the address: state=, q=, finished=show, sort=PROJECTION:field, page=PROJECTION:N, size=,
    states=all. Edited in place, it is saved as the projection's list dashboard (`dashboards: list:`, in the file the
    projection is defined in), drawn at /PROJECTION in place of this one.
 
    Editing also edits the projection's definition in the workbench (workbench/Workbench.tsx: query, kinds of event,
-   mapping, review, and the YAML beside them), the draft tried on the record as it changes (DefinitionEditor.tsx), the
+   mapping, review; the YAML at the very bottom of the page, below its panels), the draft tried on the record as it changes (DefinitionEditor.tsx), the
    page's panels drawing the draft's items (draft=ID) meanwhile; Save writes the definition into the model
    (POST /api/projections/save) and then the list dashboard if its panels changed; Cancel forgets both. A new
    projection (the nav bar's + after the projections, `creating`) opens here in edit mode with a starting definition. */
@@ -127,7 +127,7 @@ export default function ProjectionPage({ projection, system = "", creating = fal
         <Contained label="The workbench">
           <Workbench name={projection} system={system} text={text} creating={creating}
             setText={(v) => setText((p) => (typeof v === "function" ? (p == null ? p : v(p)) : v))}
-            problems={problems} />
+            />
         </Contained>
       )}
       <SharedAnswers answers={[
@@ -155,6 +155,7 @@ export default function ProjectionPage({ projection, system = "", creating = fal
           </Filters>
         ) : null} />
       </SharedAnswers>
+      {ed.editing && text != null && <WorkbenchYaml text={text} setText={(t) => setText(t)} problems={problems} />}
     </div>
   );
 }

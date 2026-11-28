@@ -101,8 +101,9 @@ def test_the_old_items_addresses_lead_to_each_projections_own(browser, board):
 def test_the_projection_page_draws_its_panels_and_keeps_its_filters_in_the_address(browser, board):
     pg = opened(browser, board + "/ticket")
     pg.locator(".projection-bar h1").wait_for(timeout=WAIT)
-    for kind in ("projection-now", "projection-model", "projection-definition", "item-list"):
+    for kind in ("projection-now", "projection-model", "item-list"):
         pg.locator(f".panel-kind-{kind}").wait_for(timeout=WAIT)
+    assert pg.locator(".panel-kind-projection-definition").count() == 0           # the YAML shows it: not drawn by default
     pg.locator(".panel-kind-item-list table tbody tr").first.wait_for(timeout=WAIT)
     assert pg.locator(".panel-kind-item-list table tbody tr").count() == 2          # ticket/3 is done: hidden
     # the links: the goal as the Goals page reads it, the part as the Diagram page reads it, the process map

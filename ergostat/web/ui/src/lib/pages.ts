@@ -58,7 +58,6 @@ export const ITEM_PANELS: PanelDef[] = [
 export const PROJECTION_PANELS: PanelDef[] = [
   { panel: "projection-now", id: "now", title: "Now", size: "m", fit: true, projection: "$projection" },
   { panel: "projection-model", id: "model", title: "In the model", size: "m", fit: true, projection: "$projection" },
-  full({ panel: "projection-definition", id: "definition", title: "Definition", folded: true, projection: "$projection" }),
   full({ panel: "item-list", id: "items", title: "Items", projection: "$projection" }),
 ];
 

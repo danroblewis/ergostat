@@ -423,6 +423,7 @@ def test_the_nav_bar_s_plus_makes_a_projection_tried_and_saved_on_its_page(brows
     pg.locator(".wb-yaml .cm-content").wait_for(timeout=WAIT)
     assert "query: type.startswith('gadget.')" in pg.locator(".wb-yaml .cm-content").inner_text()   # its start
     definition(pg, GADGET)
+    pg.locator("[data-step='4'] .wb-step-head button").click()                               # the review (one step open at a time)
     pg.wait_for_function("() => document.querySelector('[data-testid=review-objects]')?.textContent === '3'", timeout=WAIT)
     pg.locator(".panel-kind-item-list a:has-text('gadget/1')").first.wait_for(timeout=WAIT)   # the list draws the draft
     assert "gadget" not in p.model.path.read_text()                                          # nothing written yet

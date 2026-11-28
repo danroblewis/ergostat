@@ -1,43 +1,51 @@
-import { useState } from "react";
-import { FOLDS, solvedKey, TYPES, type Draft } from "./draft";
+import { useEffect, useRef, useState } from "react";
+import { FOLDS, TYPES, type Draft } from "./draft";
 import { Commit } from "./KindsStep";
 import type { MappingEdits } from "./MappingStep";
 
-/* Step 1, what it is: its fields (fields:, each its type, values, fold and description). And its key (key:, the fields
-   that are an object's identity, in order: several make a composite key; each kind of event's key is then what it maps
-   to them, step 4), at the top of the panel on the right (KeySide), set before any mapping: from the fields declared,
-   or a new one made there. The query, the kinds of event and the mapping then find the parts. */
+/* Step 0, the schema: its fields (fields:, each its type, values, fold and description). And its key (key:, the fields
+   that are an object's identity: several make a composite key; each kind of event's key is then what it maps to them,
+   step 3), at the top of the panel on the right (KeySide), set before any mapping, from the fields declared. The query, the kinds of event and the mapping then find the parts. */
 
-/** The key: the declared fields chosen, in order (each moved up or down, or taken out), and a choice of the others
- *  to add. None chosen: the events' own item. */
+/** The key: the declared fields chosen, as pills on one line (each taken out with its ×), and a + at the end that
+ *  opens the declared fields not in it. Its order does not matter: the YAML keeps the order they were added in. None
+ *  chosen: the events' own item. */
 export function KeyFields({ draft, editable, onChange }: { draft: Draft; editable: boolean; onChange: (names: string[]) => void }) {
   const key = draft.key;
   const others = draft.fields.map((f) => f.name).filter((f) => !key.includes(f));
-  const move = (i: number, by: number) => {
-    const x = [...key];
-    [x[i], x[i + by]] = [x[i + by], x[i]];
-    onChange(x);
-  };
+  const [picking, setPicking] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!picking) return;
+    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setPicking(false); };
+    document.addEventListener("mousedown", away);
+    return () => document.removeEventListener("mousedown", away);
+  }, [picking]);
   return (
-    <div className="wb-keyfields">
-      {key.length === 0 ? <p className="muted small">None: each event is its own item&apos;s (its <code>key</code>).</p> : (
-        <ol className="wb-keyparts" aria-label="The projection's key">
-          {key.map((f, i) => (
-            <li key={f}>
-              <code>{f}</code>{!draft.fields.some((x) => x.name === f) && <span className="lvl-error small"> not a field</span>}{" "}
-              <button type="button" className="ghost" disabled={!editable || i === 0} aria-label={`Move ${f} up`} onClick={() => move(i, -1)}>↑</button>
-              <button type="button" className="ghost" disabled={!editable || i === key.length - 1} aria-label={`Move ${f} down`} onClick={() => move(i, 1)}>↓</button>
-              <button type="button" className="ghost" disabled={!editable} aria-label={`Take ${f} out of the key`}
-                onClick={() => onChange(key.filter((x) => x !== f))}>×</button>
-            </li>
-          ))}
-        </ol>
-      )}
-      <select value="" aria-label="Add a field to the key" disabled={!editable || !others.length}
-        onChange={(e) => { const f = e.target.value; if (f) onChange([...key, f]); }}>
-        <option value="">{others.length ? "add a field to the key…" : draft.fields.length ? "every field is in the key" : "declare a field first"}</option>
-        {others.map((f) => <option key={f} value={f}>{f}</option>)}
-      </select>
+    <div className="wb-keyfields" ref={box} onKeyDown={(e) => { if (e.key === "Escape") setPicking(false); }}>
+      <ul className="wb-keypills" aria-label="The projection's key">
+        {key.length === 0 && <li className="muted small">None: each event is its own item&apos;s (its <code>key</code>).</li>}
+        {key.map((f) => (
+          <li key={f} className="set-chip wb-keypill">
+            <code>{f}</code>{!draft.fields.some((x) => x.name === f) && <span className="lvl-error small">not a field</span>}
+            <button type="button" className="ghost" disabled={!editable} aria-label={`Take ${f} out of the key`}
+              onClick={() => onChange(key.filter((x) => x !== f))}>×</button>
+          </li>
+        ))}
+        <li className="wb-keyadd">
+          <button type="button" className="ghost" aria-label="Put a field in the key" aria-expanded={picking} disabled={!editable}
+            title={others.length ? "Add a field to the key" : draft.fields.length ? "Every field is in the key" : "Declare a field first (step 0)"}
+            onClick={() => setPicking((x) => !x)}>+</button>
+          {picking && (
+            <ul className="wb-keymenu" role="menu" aria-label="The fields not in the key">
+              {others.length ? others.map((f) => (
+                <li key={f} role="none"><button type="button" role="menuitem" className="ghost"
+                  onClick={() => { onChange([...key, f]); setPicking(false); }}><code>{f}</code></button></li>
+              )) : <li className="muted small">{draft.fields.length ? "Every field is in the key." : "Declare a field first (step 0)."}</li>}
+            </ul>
+          )}
+        </li>
+      </ul>
     </div>
   );
 }
@@ -89,28 +97,13 @@ export function WhatStep({ draft, ed, editable }: { draft: Draft; ed: MappingEdi
   );
 }
 
-/** The key at the top of the panel on the right: its fields in order, one added from those declared or made there and
- *  then (a name and a type), and how many kinds of event tell every part of it. */
+/** The key at the top of the panel on the right: the fields that are an object's identity, chosen from those declared
+ *  (step 0, the schema). */
 export function KeySide({ draft, ed, editable }: { draft: Draft; ed: MappingEdits; editable: boolean }) {
-  const [name, setName] = useState("");
-  const [type, setType] = useState("text");
-  const v = name.trim();
-  const taken = draft.fields.some((f) => f.name === v);
-  const ok = /^[A-Za-z_][\w-]*$/.test(v) && !taken;
-  const add = () => { if (editable && ok) { ed.addKeyField(v, type); setName(""); } };
   return (
     <section className="wb-keyside" aria-label="Its key">
-      <h2 className="small">Its key <span className="muted">the fields that are an object&apos;s identity, in order</span></h2>
+      <h2 className="small">Its key <span className="muted">the fields that are an object&apos;s identity</span></h2>
       <KeyFields draft={draft} editable={editable} onChange={ed.setKey} />
-      <p className="wb-row wb-newkey">
-        <input className="mono" value={name} onChange={(e) => setName(e.target.value)} placeholder="a new field" spellCheck={false}
-          aria-label="A new key field's name" disabled={!editable} onKeyDown={(e) => { if (e.key === "Enter") add(); }} />
-        <select value={type} onChange={(e) => setType(e.target.value)} aria-label="A new key field's type" disabled={!editable}>
-          {TYPES.map((t) => <option key={t}>{t}</option>)}
-        </select>
-        <button type="button" disabled={!editable || !ok} onClick={add}>Add to the key</button>
-        {taken && v && <span className="muted small">a field already: add it above</span>}
-      </p>
     </section>
   );
 }
