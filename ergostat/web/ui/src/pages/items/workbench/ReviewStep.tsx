@@ -260,7 +260,7 @@ export function SidePanel({ r, item, onItem, keyPart }: { r: any; item: string; 
           </Residue>
           <Residue label="refused" count={s.refused.count}>
             <ul>{s.refused.groups.map((g: any, i: number) => (
-              <li key={i}><span className="wb-kind-n">{n(g.count)}</span> {g.why} <span className="muted small">{(g.objects || []).slice(0, 3).join(", ")}</span></li>
+              <li key={i}><span className="wb-kind-n">{n(g.count)}</span> {g.why} {typeof g.objects === "number" && <span className="muted small">({n(g.objects)} object{g.objects === 1 ? "" : "s"})</span>}</li>
             ))}</ul>
           </Residue>
           <Residue label="contradictions: rare or impossible histories" count={s.contradictions.count}>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ErrorNote, Filters, FinishedToggle, ProjectionBar, Page, PAGE_SIZES, SearchBox, StatesChoice } from "../../components";
+import { Contained } from "../../components/Contained";
 import { EditableDashboard, useEditing } from "../../components/panels/EditableDashboard";
 import { itemListParams } from "../../components/panels/kinds/items";
 import { SharedAnswers } from "../../components/panels/shared";
@@ -123,9 +124,11 @@ export default function ProjectionPage({ projection, system = "", creating = fal
       )}
       {ed.bar && <div className="page-edit">{ed.bar}</div>}
       {ed.editing && text != null && (
-        <Workbench name={projection} system={system} text={text} creating={creating}
-          setText={(v) => setText((p) => (typeof v === "function" ? (p == null ? p : v(p)) : v))}
-          problems={problems} />
+        <Contained label="The workbench">
+          <Workbench name={projection} system={system} text={text} creating={creating}
+            setText={(v) => setText((p) => (typeof v === "function" ? (p == null ? p : v(p)) : v))}
+            problems={problems} />
+        </Contained>
       )}
       <SharedAnswers answers={[
         { path: "items", params: asked, state: items },

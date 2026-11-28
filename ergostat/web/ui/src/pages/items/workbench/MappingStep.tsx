@@ -31,18 +31,19 @@ export interface MappingEdits {
 }
 
 /** Every path in an event (its parts' and all within them), and its values' paths alone. */
-function pathsOf(e: QEvent): { all: JsonPath[]; leaves: JsonPath[] } {
-  const all: JsonPath[] = [], leaves: JsonPath[] = [];
+function pathsOf(e: QEvent): { all: JsonPath[]; leaves: JsonPath[]; empties: Set<string> } {
+  const all: JsonPath[] = [], leaves: JsonPath[] = [], empties = new Set<string>();
   const walk = (v: unknown, p: JsonPath) => {
     all.push(p);
     if (v !== null && typeof v === "object") {
       const es = Array.isArray(v) ? v.map((x, i) => [i, x] as [number, unknown]) : Object.entries(v as Record<string, unknown>);
       if (es.length) { for (const [k, x] of es) walk(x, [...p, k]); return; }
+      empties.add(pathExpr(p));                    // an empty list or map: a leaf with nothing in it
     }
     leaves.push(p);
   };
   for (const [k, v] of [["type", e.type], ["key", e.item], ["source", e.source], ["data", e.data]] as [string, unknown][]) if (v != null) walk(v, [k]);
-  return { all, leaves };
+  return { all, leaves, empties };
 }
 
 /** The value at a path in an event. */
@@ -148,7 +149,16 @@ function KindMapping({ k, draft, ed, editable, fold }: {
 
   // every path left in its sample events: not read into a field (itself or what holds it), nor ignored
   const decided = (p: JsonPath) => { for (let i = p.length; i > 0; i--) { const m = mark(p.slice(0, i)); if (m.to || m.ignored) return true; } return false; };
-  const left = new Set(evs.flatMap((x) => pathsOf(x).leaves.filter((p) => !decided(p)).map(pathExpr))).size;
+  // an empty list or map counts as decided when, in another of its events, what it holds when not empty is decided
+  // (`items: []` here, `items[0].instanceId` mapped there); else it is ignored or mapped like any value
+  const all = evs.map(pathsOf);
+  const decidedUnder = all.flatMap((x) => x.leaves.filter((p) => !x.empties.has(pathExpr(p)) && decided(p)).map(pathExpr));
+  const settled = (p: JsonPath, empties: Set<string>) => {
+    if (decided(p)) return true;
+    const x = pathExpr(p);
+    return empties.has(x) && decidedUnder.some((d) => d.startsWith(x + ".") || d.startsWith(x + "["));
+  };
+  const left = new Set(all.flatMap((x) => x.leaves.filter((p) => !settled(p, x.empties)).map(pathExpr))).size;
   const complete = evs.length > 0 && left === 0;
   const [open, setOpen] = useState(true);
   const wasComplete = useRef(false);

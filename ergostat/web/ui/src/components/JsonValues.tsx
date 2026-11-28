@@ -38,7 +38,8 @@ export function JsonValues({ value, path, onPick, picked, mark, showIgnored }: {
     return <Leaf v={value} path={path} onPick={onPick} picked={picked} mark={mark} />;
   }
   const entries: [string | number, unknown][] = Array.isArray(value) ? value.map((v, i) => [i, v]) : Object.entries(value);
-  if (!entries.length) return <span className="jv-val">{Array.isArray(value) ? "[]" : "{}"}</span>;
+  // an empty list or map is a value like any other: shown, marked, and pickable (to map or to ignore)
+  if (!entries.length) return <Leaf v={value} path={path} onPick={onPick} picked={picked} mark={mark} />;
   const shown = mark && !showIgnored ? entries.filter(([k]) => !mark([...path, k])?.ignored) : entries;
   return (
     <ul className="jv">
