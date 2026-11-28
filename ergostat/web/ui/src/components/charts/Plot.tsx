@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import { dur, fmt } from "../../lib/format";
+import { hoverPlugin } from "./hover";
 import { themedAxes, useScheme } from "./theme";
 
 /* A panel's plot over time (uPlot), filling its box in both directions (the shared Chart takes a fixed height):
@@ -56,6 +57,8 @@ export function Plot({ times, series, kind, fill, stacked, step, unit = "", yMin
       height: Math.max(60, el.clientHeight),
       legend: { show: !!legend },
       cursor: { drag: { x: false, y: false } },
+      // the hover readout; a stacked area's own value (not the running total it is drawn at)
+      plugins: [hoverPlugin((_v, i, idx) => valueText((stacked ? [...series].reverse() : series)[i - 1]?.values[idx] ?? null, unit))],
       scales: { y: yMin != null ? { range: (_u, lo, hi) => [Math.min(yMin, lo ?? 0), hi == null || hi <= yMin ? yMin + 1 : hi * 1.05] } : {} },
       series: [
         {},

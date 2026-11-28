@@ -97,3 +97,22 @@ def test_an_items_show_page_charts_its_states_numbers_and_events(browser, served
     assert order == kinds, order
     assert settled(pg) == []
     pg.close()
+
+
+def test_hovering_a_chart_names_its_lines_and_values(browser, served):
+    """The charts have no legend: hovering one says, at the cursor, the time and each line's colour, name and value."""
+    p, url = served
+    its = api(url, "items?projection=instance&n=50")
+    rows = its.get("items") or its.get("rows") or []
+    it = next(r["id"] for r in rows if (r.get("fields") or r).get("reboots"))
+    pg = opened(browser, url + "/instance/" + "/".join(urllib.parse.quote(s, safe="") for s in it.split("/")))
+    over = pg.locator(".item-field-chart[data-field=reboots] .u-over")
+    over.wait_for(timeout=WAIT)
+    box = over.bounding_box()
+    pg.mouse.move(box["x"] + box["width"] * 0.9, box["y"] + box["height"] / 2)
+    tip = pg.locator(".item-field-chart[data-field=reboots] .chart-tip")
+    tip.wait_for(state="visible", timeout=WAIT)
+    text = tip.inner_text()
+    assert "reboots" in text and tip.locator(".chart-tip-swatch").count() >= 1, text
+    pg.mouse.move(0, 0)
+    pg.close()

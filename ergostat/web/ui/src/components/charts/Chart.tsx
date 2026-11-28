@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { hoverPlugin } from "./hover";
 import { themedAxis, useScheme } from "./theme";
 
 /* A time series chart (uPlot): ``times`` in epoch seconds, each series its values at those times (null: no reading).
@@ -46,6 +47,7 @@ export function Chart({ times, series, height = 180, title, options, className }
       legend: { show: series.length > 1 },
       series: [{}, ...series.map((s, i) => ({ label: s.label, stroke: s.stroke ?? colour(i), dash: s.dash, fill: s.fill, width: 1.5, spanGaps: false }))],
       ...options,
+      plugins: [hoverPlugin(), ...(options?.plugins || [])],   // the hover readout: names and values at the cursor
       axes: (options?.axes || [{}, { size: 50 }]).map((a) => themedAxis(a)),   // the caller's axes, in the theme
     };
     const data = [times, ...series.map((s) => s.values)] as uPlot.AlignedData;
