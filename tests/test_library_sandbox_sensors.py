@@ -178,7 +178,7 @@ def test_no_sandbox_no_run(tmp_path, monkeypatch, no_shell):
     added, events = [], []
     eng = SimpleNamespace(spec=spec, socket=None, lock=threading.Lock(), reading={s.series}, dirty_series=set(),
                           read_cause={}, say=lambda m: None, evaluate=lambda c=None: None,
-                          _observer=lambda n: None,
+                          _observer=lambda n: None, read_back=lambda s, failed=False: None,
                           p=SimpleNamespace(dir=tmp_path / "state", events=SimpleNamespace(add=lambda *a, **k: events.append(a)),
                                             measurements=SimpleNamespace(add=lambda *a: added.append(a))))
     engine.Engine._read(eng, s)
