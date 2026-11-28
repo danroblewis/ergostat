@@ -173,7 +173,10 @@ function KindMapping({ k, draft, ed, editable, fold, opened }: {
     if (!live || !e) return undefined;
     if (hlField != null && JSON.stringify(valueAt(e, p)) === JSON.stringify(live.value) && (!told[hlField] || m.to === hlField))
       return `refused: ${short(live.why, 120)}`;
-    if (m.to && hlKey.includes(m.to) && opened?.o.what === "split") return `the key's ${m.to}, read differently by the kinds`;
+    if (m.to && hlKey.includes(m.to) && opened?.o.what === "split") {
+      const [mine, twin] = live.objects || [];
+      return twin ? `${m.to} here makes ${mine}; another object is ${twin}: likely one thing, its ${m.to} written two ways` : undefined;
+    }
     return undefined;
   };
   const mark = (p: JsonPath): PathMark => {

@@ -564,22 +564,47 @@ def residual(kind, items: dict, by_key: dict, took: dict, remainder: list, unkey
             for i, x in enumerate(parts):
                 at[i].setdefault(x, []).append(k)
 
+    # a key part that tells objects apart: most objects keyed the main way have a value of their own there (an instance
+    # id), unlike a part many share (an account, a region)
+    distinct = [len(at[i]) > 0.5 * max(1, len(mains)) for i in range(width)]
+
+    def alike(a: str, b: str) -> bool:
+        """Two key values that are likely one thing written two ways: equal but for case or spaces, or one inside
+        the other (an ARN and the id it ends with)."""
+        x, y = a.strip().lower(), b.strip().lower()
+        return x != y and bool(x) and bool(y) and (x == y.replace(" ", "") or x in y or y in x)
+
     def counterpart(key: str) -> tuple[str | None, list]:
-        """The object keyed the main way that shares the most key parts with ``key``, and the key fields that differ."""
+        """An object keyed the main way that is likely the same thing as ``key``: every key part equal or alike, at
+        least one alike (not merely equal account and region, which many objects share); and the key fields that
+        differ. None when there is none: then it is no split, only an object the main kinds never reached."""
         parts = key.split("/")
         if len(parts) != width:
             return None, []
-        n = Counter(o for i, x in enumerate(parts) for o in at[i].get(x, ()))
-        if not n:
+        for other in sorted({o for i, x in enumerate(parts) for o in at[i].get(x, ())}):
+            theirs = other.split("/")
+            same = [a == b for a, b in zip(parts, theirs, strict=True)]
+            if any(sm and distinct[i] for i, sm in enumerate(same)):     # the part that tells objects apart is equal
+                return other, [f for f, sm in zip(kind.key, same, strict=True) if not sm]
+            if all(sm or alike(a, b) for sm, a, b in zip(same, parts, theirs, strict=True)) and not all(same):
+                return other, [f for f, sm in zip(kind.key, same, strict=True) if not sm]
+        if width == 1 or not mains:
             return None, []
-        best = n.most_common(1)[0][0]
-        return best, [f for f, a, b in zip(kind.key, parts, best.split("/"), strict=True) if a != b]
+        for other in mains:                               # a part that differs only in its form, the others equal
+            theirs = other.split("/")
+            if len(theirs) == width and all(a == b or alike(a, b) for a, b in zip(parts, theirs, strict=True)) \
+                    and any(alike(a, b) for a, b in zip(parts, theirs, strict=True)):
+                return other, [f for f, a, b in zip(kind.key, parts, theirs, strict=True) if a != b]
+        return None, []
 
+    real = {}
+    for ks, v in splits.items():                          # a split only where its twin is found
+        found = [k for k in v if counterpart(k)[0] is not None]
+        if found:
+            real[ks] = found
+    splits = real
     for ks, v in sorted(splits.items(), key=lambda kv: -len(kv[1]))[:GROUPS]:
         twin, differ = counterpart(v[0])
-        if not differ:                                   # by the expressions, when no object keyed the main way is near
-            differ = sorted({f for kn in ks for f, a, b in zip(kind.key or [], sig.get(kn, ()), main_sig, strict=False)
-                             if a != b}, key=lambda f: list(kind.key).index(f))
         half = OPEN_MOST // 2 if twin else OPEN_MOST
         evs = by_key[v[0]][-half:] + (by_key[twin][-(OPEN_MOST - half):] if twin else [])
         split_groups.append({"kinds": list(ks), "objects": len(v), "samples": v[:SAMPLES], "main": main_kinds,
