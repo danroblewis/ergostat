@@ -95,9 +95,10 @@ def run(p, model: str = "haiku", budget: float = 0.5, daily: float = 1.0, most: 
     out = {"proposed": [], "not_proposed": [], "cannot": [], "cost": {"usd": 0.0, "calls": 0}, "requests": len(reqs)}
     if not reqs:
         from . import unexplained as ux_
-        mine = [r for r in rq.waiting(p, ("open", "proposed", "held")) if r.get("source") == ux_.SOURCE]
-        waiting = [r for r in mine if r["state"] == "proposed"]
-        owners = [r for r in mine if r["state"] != "proposed"]
+        mine = [r for r in rq.current(p, ("open", "proposed", "held")) if r.get("source") == ux_.SOURCE]
+        free = {r["id"] for r in rq.waiting(p, ("open", "proposed", "held"))}     # no change waiting cites it
+        waiting = [r for r in mine if r["id"] not in free]
+        owners = [r for r in mine if r["id"] in free]
         out["said"] = ("drafter: nothing to draft: " + "; ".join(x for x in (
             f"{len(waiting)} groups have a draft waiting for the owner (ergostat inbox, or the Fit page's review queue)"
             if waiting else "",
