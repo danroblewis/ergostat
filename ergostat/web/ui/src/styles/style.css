@@ -256,6 +256,9 @@ h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 .att .ask { white-space: pre-line; }
 .att details.cmd pre, .claim details.cmd pre { white-space: pre-wrap; margin: var(--sp-1) 0 0; }
 .att .att-word { color: var(--ink-2); }
+/* a goal off: where its loop stops, one line under its row, linked to what is stuck */
+.att .att-stuck { font-size: var(--text-sm); color: var(--ink-2); margin-top: var(--sp-0); overflow-wrap: anywhere; }
+.goal-stuck li.stuck { font-weight: 600; }
 /* a thing the owner answers here: its title, a line of why, its buttons on their own line */
 .wait-card { border: 1px solid var(--line); border-radius: 6px; padding: var(--sp-2); margin: var(--sp-2) 0; overflow-wrap: anywhere; }
 .wait-card .wait-meta { color: var(--muted); font-size: var(--text-sm); }

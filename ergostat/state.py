@@ -427,6 +427,9 @@ def _snapshot(project, window: float, now: float | None) -> dict:
                 lp["interventions"] = iv(project, spec, now)
             except Exception:
                 pass
+    if live:                                          # a goal off: where its loop is stuck (SPEC §8), from what is kept
+        from . import stuck
+        stuck.attach(project, snap)
     snap["leases"] = lease_attention(project, now)
     snap["cycles"] = relation_cycles(project)
     snap["findings"] = findings(project)
@@ -880,6 +883,9 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                                                                                      None) in mod else {}))
             if lp.get("diagnosis_in"):                  # its suggestion, not yet due
                 out[-1]["diagnosis_in"] = lp["diagnosis_in"]
+            if lp["status"] == "off" and (lp.get("stuck") or {}).get("says"):   # where its loop stops, one line
+                s_ = lp["stuck"]
+                out[-1].update(stuck=s_["says"], **({"stuck_link": s_["link"]} if s_.get("link") else {}))
     if model is not None and getattr(model, "spec", None) is not None:   # remotes that do not answer (SPEC §4c)
         from .remote import attention as remote_attention
         out += remote_attention(model.spec)

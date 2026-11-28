@@ -4607,6 +4607,30 @@ worked`, or `..., 3 items being worked` while its blocks, or its subsystems', ho
 called holding. `/api/systems` carries it as `quiet` (null otherwise), and so does each closed system's node in the
 graph; the Goals page prints it per system and a system's panel on the diagram at its top.
 
+**Where a goal off is stuck.** A goal that is off says where its loop stops, in one line, at once (it states the
+loop's steps as they stand; it is not a verdict that needs record, as the saturation suggestion's `diagnosis in N` is).
+ergostat follows the loop from its stock to the blocks that act for it (their `goal:`; ergostat's own implied and
+built-in blocks left out; on a model without blocks, its valves' agents) and onward, and says the first step that
+stops: the block has never run (with its schedule, or "it runs while GOAL is off"), or not for several of its runs;
+its last run failed (its note); it is capped by its day's spend (a modelling AI block's `--daily`, against the spend
+ledger: "the drafter is capped: $1.00 of ai-daily's $1.00 spent today"); its last three runs produced nothing (no
+opening, command, decision, event or proposal, nor any change to the model), with what its last run said (the last
+plain line of its own run log). A block whose output is a flow counted from `ergostat.model-change` (modelling's
+drafter, modeller, fixer, improver, redesigner) is followed through the changes it made over the last day, from the
+changes table (never a scan of the record), counted by what became of each in the pipeline's order: wait for you,
+with the judge, wait for the reviewer, written, sent back by the reviewer, rejected by the reviewer, failed by the
+judge, refused at check, superseded, dismissed, inconclusive, the step that stops first with its latest finding:
+`5 changes the drafter made over the last day: 5 sent back by the reviewer (latest: "State modifying has no exit…")`.
+Changes waiting for the owner stop it there (`N wait for you`, linked to *Waiting for you*); changes with the judge or
+the reviewer are where it is, not a stop (said when nothing else stops; changes waiting for a reviewer whose block is
+failing or capped add its step). Once it acted (a change written, a valve opened) and the stock did not move toward
+its setpoint over the window: `it acted, and STOCK did not move`. Each step's link is what it is about: the block's
+page, or the changes in that state (`/ergostat.model-change?state=STATE&finished=show&q=BLOCK`). The snapshot's
+`loops[GOAL].stuck` is `{says, link, steps: [{step: block|changes|stock, says, stuck, link, counts?}]}` (live only);
+the goal's attention entry carries `stuck` (the line) and `stuck_link`. *Goals off* prints the line under the goal's
+row ("where it stops: ..."), linked; the goal's detail lists each step with its counts (*Where it stops*); `ergostat`
+prints it under the goal's line and `ergostat loop GOAL` each step.
+
 **Per item or per group.** "No ticket in review older than two days", and "each epic's open tickets at most 10":
 
 ```yaml

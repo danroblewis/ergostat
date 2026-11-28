@@ -1535,6 +1535,11 @@ write the projections yourself:
   item by its root, ranks the roots (stalls first, then by what waits on them), folds the goals off because of a root
   under it, and its first line names the biggest stall and its next step, or says nothing is stuck. Ask it first when
   many goals are off at once: fix the first stall, then ask again (SPEC §5a).
+- **Why a goal stays off**: `ergostat status` prints, under each goal off, `where it stops: ...`, the first step of its
+  loop that stops (its block never ran, failed, is capped, produced nothing; modelling's changes sent back by the
+  reviewer, failed by the judge, waiting for the owner; it acted and the stock did not move); `ergostat loop GOAL`
+  lists each step with its counts, and `--json` carries them as `stuck` (SPEC §8, *Where a goal off is stuck*). Read
+  it before changing the goal or the block: it names what to fix.
 - **A projection before you write it**: `ergostat events shape`, `events query QUERY`, `events kinds QUERY`,
   `projection try FILE.yaml` and `projection review FILE.yaml` (MCP `events_shape`, `events_query`, `events_kinds`,
   `projection_try`, `projection_review`): the stream's paths, a query's counts and samples, the kinds of event it

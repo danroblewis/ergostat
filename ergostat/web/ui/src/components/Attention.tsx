@@ -66,6 +66,9 @@ function Row({ a, onGoal }: { a: any; onGoal: (goal: string) => void }) {
         : a.goal ? <button type="button" className="name" onClick={() => onGoal(a.goal)}>{what}</button> : what}{" "}
       {String(a.says || "").replace(/\. ergostat inbox .*$/, "")}
       {a.diagnosis_in ? <span className="muted"> · diagnosis in {dur(a.diagnosis_in)}</span> : null}
+      {a.stuck ? (
+        <div className="att-stuck" data-stuck>where it stops: {a.stuck_link ? <AppLink to={a.stuck_link}>{a.stuck}</AppLink> : a.stuck}</div>
+      ) : null}
     </div>
   );
 }

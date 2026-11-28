@@ -86,6 +86,28 @@ def test_the_diagram_side_list_still_draws(browser, site, view, own):  # noqa: F
     pg.close()
 
 
+def test_a_goal_off_says_where_its_loop_stops_on_its_row_and_each_step_in_its_detail(browser, tmp_path):  # noqa: F811
+    import time
+    p = project_with_items(tmp_path / EXAMPLE)
+    (s,) = p.model.spec.stocks["inbox"].sensors.values()
+    for i in range(3):                                   # the inbox far past its setpoint: inbox-short off
+        p.measurements.add(s.series, 40.0, time.time() - 20 + 5 * i)
+    server, url = web.serve(p, 0)
+    try:
+        pg = opened(browser, url + "/diagram")
+        row = pg.locator(".goals-off [data-row='goal inbox-short']")
+        row.locator("[data-stuck]").wait_for(timeout=WAIT)
+        assert row.locator("[data-stuck]").inner_text() == "where it stops: the worker has never run (it runs while inbox-short is off)"
+        assert row.locator("[data-stuck] a").get_attribute("href").endswith("/worker")
+        row.locator("button.name").click()               # its detail: each step along its loop
+        pg.locator("[data-goal-stuck] li.stuck", has_text="the worker has never run").first.wait_for(timeout=WAIT)
+        assert settled(pg) == []
+        pg.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_the_goals_page_is_the_goals_panel_with_every_column_and_select_opens_the_goal(browser, site):  # noqa: F811
     pg = opened(browser, site + "/goals?select=inbox-short")
     assert heading(pg).startswith("Goals")

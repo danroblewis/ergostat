@@ -146,6 +146,8 @@ def status(args) -> int:
     hints = [a for a in att if a["level"] == "hint"]
     for a in problems:
         print(f"  {c('●', a['level'])} {a['what']}: {a['says']}")
+        if a.get("stuck"):                                # a goal off: where its loop stops (ergostat loop NAME: each step)
+            print(f"      where it stops: {a['stuck']}")
         if edited and a["says"] == edited["banner"]:
             for x in edited["errors"]:
                 print(f"      {x}")

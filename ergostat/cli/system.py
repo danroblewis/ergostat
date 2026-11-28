@@ -148,6 +148,12 @@ def cmd_loop(args) -> int:
         print(f"  {lp['stock']} over the {over} recorded: {show.spark(pts)}")
     for g in lp["gaps"]:
         print("  " + c("cannot close: " + g, "warn"))
+    if lp.get("stuck"):                                   # off: where its loop stops, then each step along it
+        print("  " + c("where it stops: ", "bad") + lp["stuck"]["says"])
+        for s_ in lp["stuck"]["steps"]:
+            print(c("    ", "dim") + ("● " if s_.get("stuck") else "· ") + s_["says"])
+            for k in s_.get("counts") or []:
+                print(c(f"        {k['n']:>4}  {k['says']}" + (f": {k['latest']}" if k.get("latest") else ""), "dim"))
     print()
     rows = []
     for s in lp["sensors"] or [None]:

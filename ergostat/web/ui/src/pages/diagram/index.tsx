@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Async, Fields, Menu, Segmented, Tabs, useDetail } from "../../components";
 import { DiagramCanvas, graphOf, usePartPanels, type Acts, type ViewKey } from "../../components/diagram";
+import { GoalStuck } from "../../components/GoalDetail";
 import { useApi } from "../../hooks/useApi";
 import { diagramHref } from "../../lib/hrefs";
 import { useStatus } from "../../state/status";
@@ -29,10 +30,13 @@ function GoalPanel({ name }: { name: string }) {
       <h2>{name}</h2>
       <Async state={st}>
         {(lp) => (
-          <Fields caption="The goal" fields={[
-            ["state", lp.status ?? lp.state], ["measure", lp.row?.measure ?? lp.stock], ["setpoint", lp.setpoint],
-            ["now", lp.row?.value ?? lp.value], ["off by", lp.off_by_words], ["description", lp.description],
-          ].filter(([, v]) => v != null && v !== "") as [string, any][]} />
+          <>
+            <Fields caption="The goal" fields={[
+              ["state", lp.status ?? lp.state], ["measure", lp.row?.measure ?? lp.stock], ["setpoint", lp.setpoint],
+              ["now", lp.row?.value ?? lp.value], ["off by", lp.off_by_words], ["description", lp.description],
+            ].filter(([, v]) => v != null && v !== "") as [string, any][]} />
+            {lp.stuck?.says && <GoalStuck stuck={lp.stuck} />}
+          </>
         )}
       </Async>
     </>

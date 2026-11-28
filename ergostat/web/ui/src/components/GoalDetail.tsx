@@ -12,6 +12,31 @@ import { exceptional, goalWord } from "../lib/goals";
    (control.js): the process identified, its controller, and the proposals the owner accepts or dismisses; then its
    crossings and decisions. Not ported: its scope charts and the forecast ahead. */
 
+/** A goal off: where its loop stops, then each step along it (its blocks' runs, the changes they made by what became
+ *  of them, the stock), each linked to what it is about. */
+export function GoalStuck({ stuck }: { stuck: any }) {
+  const link = (to: string | null | undefined, text: string) => (to ? <AppLink to={to}>{text}</AppLink> : <>{text}</>);
+  return (
+    <div className="goal-stuck" data-goal-stuck>
+      <h3>Where it stops</h3>
+      <p>{link(stuck.link, stuck.says)}</p>
+      <ul>
+        {(stuck.steps || []).map((s: any, i: number) => (
+          <li key={i} className={s.stuck ? "stuck" : undefined}>
+            {s.counts?.length ? (
+              <>{String(s.says).split(": ")[0]}:{" "}
+                {s.counts.map((k: any, j: number) => (
+                  <span key={k.what}>{j ? ", " : ""}{link(k.link, `${k.n} ${k.says}`)}{k.latest ? ` (latest: “${k.latest}”)` : ""}</span>
+                ))}
+              </>
+            ) : link(s.link, s.says)}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function GoalDetail({ name }: { name: string }) {
   const lp = useApi<any>(`loops/${encodeURIComponent(name)}`, {}, { every: 4000 });
   return (
@@ -23,6 +48,7 @@ export function GoalDetail({ name }: { name: string }) {
             <div className="kind">{lp.open_loop ? "Goal, open loop" : "Goal"}</div>
             <h2>{name}{exceptional(word) && <> <StatusWord status={word} /></>}</h2>
             <GoalRunbook name={name} lp={lp} />
+            {lp.stuck?.says && <GoalStuck stuck={lp.stuck} />}
             <GoalParts name={name} lp={lp} />
             {lp.breaking?.length > 0 && (
               <>
