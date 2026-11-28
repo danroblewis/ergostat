@@ -561,13 +561,17 @@ def age(snap: dict, now: float | None = None) -> dict:
 
 
 def alarms(project, now: float) -> dict:
-    """The ``alarm`` blocks raised at ``now`` (their output last recorded as 1): since when, and what they watch."""
+    """The ``alarm`` blocks raised at ``now`` (their output last recorded as 1): since when (the raise's own time, from
+    ``alarms.json``: ergostat/alarms.py), what they watch, the value, and the raising's object (``item``)."""
+    from .alarms import bound_of, read_state
     spec, out = getattr(project.model, "spec", None), {}
+    raised = read_state(project.dir) if spec is not None and getattr(project, "dir", None) else {}
     for b in (spec.blocks.values() if spec is not None else ()):
         got = project.measurements.latest(f"block/{b.name}", now) if b.type == "alarm" else None
         if got and got[1]:
-            bound = " and ".join(f"{k} {fmt(float(b.params[k]))}" for k in ("above", "below") if b.params.get(k) is not None)
-            out[b.name] = {"since": got[0], "watches": ", ".join(str(r) for r in b.reads()), "bound": bound}
+            x = raised.get(b.name) or {}
+            out[b.name] = {"since": x.get("raised") or got[0], "watches": ", ".join(str(r) for r in b.reads()),
+                           "bound": bound_of(b), **({"item": x["item"], "value": x.get("value")} if x else {})}
     return out
 
 
@@ -976,8 +980,9 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
     if snap.get("faults"):                            # the engine's own: a part of its loop failing, since when, why
         from .faults import rows as fault_rows
         out += fault_rows(snap["faults"])
-    for name, a in snap.get("alarms", {}).items():
-        out.append({"level": "bad", "what": f"alarm {name}", "link": f"/diagram?view=blocks&around=block/{name}",
+    for name, a in snap.get("alarms", {}).items():            # each linked to its raising's object (ergostat.alarm)
+        out.append({"level": "bad", "what": f"alarm {name}",
+                    "link": f"/{a['item']}" if a.get("item") else f"/diagram?view=blocks&around=block/{name}",
                     "says": f"raised since "
                     f"{time.strftime('%H:%M', time.localtime(a['since']))}: {a['watches']} {a['bound']}"})
     from .daemons.supervise import of_daemon
@@ -987,10 +992,10 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         al = d.get("alarm") or {}
         if d.get("state") == "failed" or d.get("failed") or (al and time.time() - al.get("at", 0) < 3600):
             part = f"{d['state']}: " if d.get("processes") else ""
-            log = f"logs/daemon-{name}#N.log" if d.get("processes") else f"logs/daemon-{name}.log"
-            out.append({"level": "bad", "what": f"daemon {name}", "link": _agent_link(name),
+            from .daemons.objects import link as daemon_link
+            out.append({"level": "bad", "what": f"daemon {name}", "link": daemon_link(name),   # its object (SPEC §9.7)
                         "says": f"{part}{al.get('why') or d.get('why')} "
-                        f"({time.strftime('%H:%M', time.localtime(al.get('at') or time.time()))}); its log: {log}"})
+                        f"({time.strftime('%H:%M', time.localtime(al.get('at') or time.time()))})"})
     for name, a in snap["agents"].items():
         if a["failing"]:
             note = (a["last"] or {}).get("data", {}).get("note", "failed")

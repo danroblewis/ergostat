@@ -351,7 +351,7 @@ class Alarm(Builtin):
         return True
 
     def compute(self, get, now):
-        x = self.first(get)
+        x = self.x = self.first(get)                  # (the value it watched: its raising's, ergostat/alarms.py)
         if x is None:
             return None
         out = (self.p.get("above") is not None and x > float(self.p["above"])) or \

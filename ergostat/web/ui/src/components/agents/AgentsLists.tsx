@@ -145,7 +145,7 @@ export function DaemonsTable({ daemons }: { daemons: Record<string, any> }) {
       <Table.Body>
         {ds.map(([n, d]) => (
           <tr key={n} data-daemon={n}>
-            <td className="nowrap" title={d.run || ""}><b>{n}</b></td>
+            <td className="nowrap" title={d.run || ""}><AppLink to={itemHref(`ergostat.daemon/${n.replace(/#[^#]*$/, "")}`)}><b>{n}</b></AppLink></td>
             <td title={d.why || ""}><span className={d.state === "running" ? "s-holding" : "s-off"}>{d.state}</span>{d.alarm && <span className="s-off" title={d.alarm.why}> alarm</span>}</td>
             <td className="muted">{(d.users || []).length > 3 ? `${d.users.length} parts` : (d.users || []).join(", ")}</td>
             <td className="num" title={`${d.restarts_total} in all`}>{String(d.restarts)}</td>

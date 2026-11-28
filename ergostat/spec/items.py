@@ -188,7 +188,8 @@ def fold(id: str, events: list[dict], kind: ItemKind | None, history: bool = Fal
         if e["type"] == SNAPSHOT:
             restore(it, e, history, transcript)
             continue
-        if kind is not None and kind.sealed and not e["type"].startswith("ergostat."):
+        if kind is not None and kind.sealed and not e["type"].startswith("ergostat.") and not (
+                isinstance(kind.sealed, tuple) and e["type"] in kind.sealed and e.get("source") == "ergostat"):
             it.refused.append({"time": e["time"], "event": e["id"], "type": e["type"], "form": "sealed",
                                "why": f"only ergostat writes a {kind.name}"})    # (SPEC §12r: M1)
             continue

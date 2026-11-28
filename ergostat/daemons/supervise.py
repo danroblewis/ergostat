@@ -22,6 +22,7 @@ from ..costs.sampler import Sampler
 from ..leases.kill import grace
 from . import proc
 from .config import STORE, WARM_ALL
+from .objects import item_of
 from .observe import Observed
 from .proc import Process
 from .work import Hands
@@ -173,7 +174,7 @@ class Supervisor(Hands):
             fresh = []
             subs = self.subs(name)
             for old_slot in subs:
-                self._drain(old_slot, "the owner asked for a restart")
+                self._drain(old_slot, "the owner asked for a restart", record=False)
                 slot = self.slots[old_slot.d.name] = Slot(old_slot.d)
                 self._release(old_slot.d.name)
                 if not slot.d.warm or self._warm_live() < WARM_ALL:
@@ -201,7 +202,7 @@ class Supervisor(Hands):
         """(under the lock) A warm process replaced, uncounted: drained, a new one started at the next tick."""
         new = self.slots[slot.d.name] = Slot(slot.d)
         new.restarts, new.total = slot.restarts, slot.total
-        self._drain(slot, why)
+        self._drain(slot, why, record=False)
 
     def _release(self, name: str) -> None:
         """(under the lock) The items a daemon given up gave back, put off: due again at once, now it runs."""
@@ -210,10 +211,13 @@ class Supervisor(Hands):
             del self.put_off[i]
         self.e.dispatch.due_now |= mine
 
-    def _drain(self, slot: Slot, why: str) -> None:
-        """(under the lock) Its process sent ``stop``, kept until it holds nothing and the grace has passed."""
+    def _drain(self, slot: Slot, why: str, record: bool = True) -> None:
+        """(under the lock) Its process sent ``stop``, kept until it holds nothing and the grace has passed. ``record``:
+        said as the daemon stopping (not a warm process replaced, nor one restarted at the owner's ask)."""
         slot.up.clear()
-        slot.state = "stopped"
+        was, slot.state = slot.state, "stopped"
+        if record and was in ("running", "backoff", "failed"):
+            self._stopped(slot, why)
         if slot.proc is not None:
             self.e.say(f"daemon {slot.d.name}: {why}: stopping once it finishes what it holds")
             slot.proc.stop()
@@ -334,12 +338,30 @@ class Supervisor(Hands):
             self._loop_going()
             return
         if again:                                    # (a kept one found ended by this engine: SPEC §9.7)
-            self.e.p.events.add("ergostat.daemon.restarted", item=slot.d.name, source=SOURCE,
-                                data={"daemon": slot.d.name, "why": again, "pid": p.pid, "restarts": 0, "wait": 0})
+            self.e.p.events.add("ergostat.daemon.restarted", item=item_of(slot.d.name), source=SOURCE,
+                                data={**self._which(slot.d), "why": again, "pid": p.pid, "restarts": 0, "wait": 0})
             self.e.say(f"daemon {slot.d.name}: {again}: restarted")
-        self.e.p.events.add("ergostat.daemon.started", item=slot.d.name, source=SOURCE,
-                            data={"daemon": slot.d.name, "pid": p.pid, "restarts": len(slot.restarts),
+        self.e.p.events.add("ergostat.daemon.started", item=item_of(slot.d.name), source=SOURCE,
+                            data={**self._which(slot.d), "pid": p.pid, "restarts": len(slot.restarts), "why": "",
+                                  "serves": self.users(slot.d.name),
+                                  "log": f"file:{old.log_path(self.e.p, f'daemon-{slot.d.name}')}",   # (while kept)
                                   **({"kept": True} if getattr(p, "kept", False) else {})})
+
+    @staticmethod
+    def _which(d) -> dict:
+        """What an event about a daemon says of which: its name, and a warm one's process (NAME#i)."""
+        return {"daemon": d.name, **({"process": d.name} if d.warm else {})}
+
+    def _stopped(self, slot: Slot, why: str) -> None:
+        """(under the lock) ``ergostat.daemon.stopped``, once the daemon (each of a warm one's processes) has stopped."""
+        base = slot.d.name.rpartition("#")[0] if slot.d.warm else slot.d.name
+        if any(s is not slot and s.state not in ("stopped", "failed") for s in self.subs(base)):
+            return
+        try:
+            self.e.p.events.add("ergostat.daemon.stopped", item=item_of(base), source=SOURCE,
+                                data={**self._which(slot.d), "pid": None, "why": why})
+        except Exception as err:                     # noqa: BLE001  (a stop is never held up by its record)
+            self.e.say(f"daemon {slot.d.name}: its stop could not be recorded: {type(err).__name__}: {err}")
 
     def acked(self, run: str) -> None:
         """A run's end recorded: a kept daemon no longer holds it in its state (``kept.py``)."""
@@ -387,19 +409,19 @@ class Supervisor(Hands):
             p.fail_all(f"its daemon {d.name} {why}", requeue=not crashed)
             self._kill(p)                            # its group, crashed or not: nothing it started is left behind
             res = self._finished(slot, p)
-        data = {"daemon": d.name, "why": why, "pid": p.pid if p else None, "restarts": n, "within": d.within,
+        data = {**self._which(d), "why": why, "pid": p.pid if p else None, "restarts": n, "within": d.within,
                 **({"exit": p.proc.returncode} if p and p.proc.returncode is not None else {}),
                 **({"resources": res} if res else {})}
         if failed:
             if not said:
-                self.e.p.events.add("ergostat.daemon.failed", item=base, source=SOURCE,
+                self.e.p.events.add("ergostat.daemon.failed", item=item_of(base), source=SOURCE,
                                     data={**data, "intervention": True, "class": f"alarm:daemon:{base}",
-                                          "users": self.users(base)})
+                                          "users": self.users(base), "alarm": slot.alarm})
             self.e.say(f"daemon {d.name}: given up after {n} restarts within {d.within:g}s ({why}): alarm raised; "
                        f"ergostat block {base} --restart when its cause is fixed")
             return
-        self.e.p.events.add("ergostat.daemon.restarted", item=d.name, source=SOURCE,
-                            data={**data, "wait": wait, **({"alarm": True} if alarm else {})})
+        self.e.p.events.add("ergostat.daemon.restarted", item=item_of(d.name), source=SOURCE,
+                            data={**data, "wait": wait, **({"alarm": slot.alarm} if alarm else {})})
         self.e.say(f"daemon {d.name}: {why}: restarting in {wait:g}s" + (" (alarm raised)" if alarm else ""))
 
     # ---- what is seen of them
@@ -447,7 +469,12 @@ class Supervisor(Hands):
             procs = self._procs()
             for s in self.slots.values():
                 s.up.clear()
-                s.state = "outliving" if getattr(s.proc, "kept", False) else "stopped"
+                if getattr(s.proc, "kept", False):
+                    s.state = "outliving"            # (it goes on: no stop recorded)
+                    continue
+                was, s.state = s.state, "stopped"
+                if was in ("running", "backoff"):    # (one given up stays so: its object given-up)
+                    self._stopped(s, "ergostat stopped")
         for p in [p for p in procs if getattr(p, "kept", False)]:
             p.leave()                                # (it goes on, its runs for the next engine: kept.py)
         procs = [p for p in procs if not getattr(p, "kept", False)]

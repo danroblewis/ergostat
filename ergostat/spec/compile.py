@@ -1673,10 +1673,16 @@ class Compiler:
             spec.items[ACTION] = action_kind()               # built in, when there are any: gated actions asked for
         if spec.workspaces:
             spec.items[WORKSPACE] = workspace_kind()         # built in, when there are any: the pools' workspaces
+        if any(b.type == "alarm" for b in spec.blocks.values()):
+            from ..alarms import ALARM, kind as alarm_kind
+            spec.items[ALARM] = alarm_kind()                 # built in, when there are any: each alarm's raisings (§9.2)
         from ..leases import compile as leases
         leases.section(self, spec)                           # leases: each tier's terms (SPEC §9.5)
         from ..daemons import config as daemons
         daemons.section(self, spec)                          # daemons: the long-lived runners (SPEC §9.7)
+        if spec.daemons:
+            from ..daemons.objects import DAEMON, kind as daemon_kind
+            spec.items[DAEMON] = daemon_kind()               # built in, when there are any: each daemon (SPEC §9.7)
         leases.check(self, spec)                             # what each block takes: its projection gains leased and dead
         from ..operating import compile as operating
         operating.section(self, spec)                        # operating: the states, their pools and trips (SPEC §9.5)

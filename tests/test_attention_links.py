@@ -26,7 +26,7 @@ def test_each_row_links_to_where_its_thing_is(tmp_path):
     got = {(a["what"], a["says"][:12]): a for a in st.attention(snap)}
     links = {w: a.get("link") for (w, _), a in got.items()}
     assert links["alarm too-many"] == "/diagram?view=blocks&around=block/too-many"
-    assert links["daemon tail"] == "/agents/tail"
+    assert links["daemon tail"] == "/ergostat.daemon/tail"            # its object (SPEC §9.7)
     assert links["stock queue"] == "/diagram?around=stock/queue"
     fixer = {a["says"][:12]: a["link"] for (w, _), a in got.items() if w == "agent fixer"}
     assert fixer["its last run"] == "/agents/fixer" and fixer["1 lines look"] == "/agents/fixer"

@@ -1079,7 +1079,8 @@ class ItemKind:
     lease: LeaseTerms = field(default_factory=lambda: LeaseTerms())   # the terms of a lease on one of these (SPEC §9.5)
     relations: dict[str, Relation] = field(default_factory=dict)   # field → its relation to other items (SPEC §5a)
     join: list[Join] = field(default_factory=list)     # when its children's states move it on (SPEC §5a, *Join*)
-    sealed: bool = False       # only ergostat's own event types fold into it (the repair loop's failures, SPEC §12r)
+    sealed: bool | tuple = False   # only ergostat's own event types fold into it (the repair loop's failures, SPEC §12r);
+    #                                 a tuple: and these types, written by ergostat itself (source ergostat: an alarm's)
     final: dict[str, dict] = field(default_factory=dict)   # a state no event leaves: what a move out of it is shown as
     finished: list[str] = field(default_factory=list)   # its finished states, when messages: done: does not name it
     lost: list[str] = field(default_factory=list)       # its finished states that are a loss (scrapped), for yields

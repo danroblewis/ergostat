@@ -248,7 +248,7 @@ def test_restart_storm_gives_up_with_alarm_and_intervention(tmp_path):
     assert n == 3, "started, restarted twice, then given up: no more"
     assert spawned(p) == 3, "each start spawned one process: none spawned and killed as a duplicate"
     f = events(p, "ergostat.daemon.failed")[0]
-    assert f["item"] == "block.worker" and f["data"]["intervention"] is True
+    assert f["item"] == "ergostat.daemon/block.worker" and f["data"]["intervention"] is True
     assert f["data"]["class"] == "alarm:daemon:block.worker" and f["data"]["users"] == ["block.worker"]
     from ergostat import state as st
     att = [a for a in st.attention(st.snapshot(p)) if a["what"] == "daemon block.worker"]
@@ -274,7 +274,7 @@ def test_stdin_not_read_restarts_and_alarms_without_blocking_the_engine(tmp_path
         got = events(p, "ergostat.daemon.restarted")
     finally:
         e.close()
-    assert got and got[0]["data"]["alarm"] is True and "standard input" in got[0]["data"]["why"]
+    assert got and got[0]["data"]["alarm"]["why"] and "standard input" in got[0]["data"]["why"]
     assert worst < 0.75, f"the engine's loop went {worst:.2f}s without a round: it waited on the daemon"
 
 

@@ -444,7 +444,7 @@ def test_one_alarm_when_a_warm_daemons_processes_are_given_up(tmp_path):
     finally:
         e.close()
     failed = events(p, "ergostat.daemon.failed")
-    assert len(failed) == 1 and failed[0]["item"] == "block.triage", failed
+    assert len(failed) == 1 and failed[0]["item"] == "ergostat.daemon/block.triage", failed
     assert st["failed"] == 2 and "2 failed (of 2 warm processes)" in st["state"] and len(st["processes"]) == 2
 
 

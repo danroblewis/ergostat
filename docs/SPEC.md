@@ -4270,9 +4270,10 @@ history on the Events page (`?item=`). What is open now is in `<state>/faults.js
 in *Model housekeeping*: "emit for projection deploy failing since 10:02: why", linked to its history) and the page's
 header beside the failing sensors (*1 engine fault*).
 
-**Every attention row links to where its thing is.** A row about an item links to the item; an alarm to its block on
-the diagram (`/diagram?view=blocks&around=block/NAME`); a daemon, and an agent whose last run failed or whose lines
-could not be read, to the agent's page (its runs, its daemon's processes); an agent's refused lines to them on the
+**Every attention row links to where its thing is.** A row about an item links to the item; an alarm to its raising's
+object (`/ergostat.alarm/BLOCK/ID`, section 9.2; one raised before alarms were objects: its block on the diagram); a
+daemon to its object (`/ergostat.daemon/NAME`, section 9.7), never a log file; an agent whose last run failed or whose
+lines could not be read, to the agent's page (its runs); an agent's refused lines to them on the
 Events page (`?match=agent.refused&item=NAME`); a stock's significant residual to the stock on the diagram
 (`/diagram?around=stock/NAME`).
 
@@ -5239,6 +5240,20 @@ A first set, kept small:
 
 More (filters, rate of change, latches) can be added when a case needs them.
 
+**An alarm is an object** (`ergostat/alarms.py`). The engine, which evaluates an `alarm` block, records each raising
+on change only: `alarm.raised` when its output turns on (what it watched, the value, its threshold `above`/`below`
+and `for`, the bound in words, why, and when), and `alarm.cleared` when it turns off again (back within its bound,
+its input unknown, or its block gone from the model), caused by the raise, with how long it lasted. A pass that finds
+it still raised records nothing. Both are about the raising's own object, `ergostat.alarm/BLOCK/RAISE-ID`, of the
+built-in projection `ergostat.alarm` (present while the model has an alarm block): states `raised` then `cleared`;
+fields `block`, `watches`, `value`, `bound`, `raised`, `cleared`, `lasted`. One object per raising, not one per
+block: each raising keeps its own value, threshold and duration, never overwritten by the next, and a block's raisings
+are an id range of the index (listed by `block`). On the Events page `type.startswith('alarm.')` is every raising.
+What is raised now is kept in `<state>/alarms.json` (written on change, under a lock, each shard's engine for its own
+blocks): "raised since" on the attention row is the raise's own time, and an engine started again goes on with an
+open raising (no second `alarm.raised`) or clears it on its first pass. The attention row and the Blocks view's
+"alarm raised" mark link to the raising's object. Nothing acknowledges an alarm: ergostat has no acknowledgement.
+
 **An error budget** (`type: budget`) is a control loop on how much checking a change gets. `budget` is the regressions
 allowed over a window (over 0, at most 10⁶); `spent` reads how many reached the work over that window (a sensor's
 count: the window is the sensor's). `levels` names the check levels, 2 to 10, the lightest first; what each level
@@ -6095,7 +6110,7 @@ are taken at most one a second; more are dropped.
   (`ergostat.daemon.restarted`, with why, its exit and its resources). Its runs in flight fail, counted.
 - It is **silent** past `heartbeat`: restarted.
 - It does **not read its standard input** for `stdin-timeout` (a write waits that long, or its queue is full):
-  restarted, and an alarm raised (`alarm: true` on the restart; it needs attention for the hour after).
+  restarted, and an alarm raised (`alarm` on the restart: its why and when; it needs attention for the hour after).
 - **Cancel**: a run whose lease expired is sent `cancel` (`ergostat.run.killed`, `signal: cancel`), as is one past
   its timeout or stopped by the owner; a daemon still holding the run a grace later (`ERGOSTAT_KILL_GRACE`, 10 s) is
   restarted, its other runs given back uncounted (not their fault).
@@ -6114,6 +6129,20 @@ are taken at most one a second; more are dropped.
   grace. A new one, started at once, takes the new work. One whose definition is the same carries on.
 - **ergostat stopping**: each is sent `stop`, and killed if it has not ended within the grace; one kept by a
   keeper is left going (*A daemon that outlives its engine*, below).
+
+**A daemon is an object** (`ergostat/daemons/objects.py`): `ergostat.daemon/NAME`, of the built-in projection
+`ergostat.daemon` (present while the model has a daemon), a warm daemon's processes one object (each event says its
+`process`, NAME#i). Its events are the supervisor's, each written on change only: `ergostat.daemon.started`
+(`running`: its pid, `serves`, the blocks and sensors it serves, and `log`, its log file, shown while kept),
+`ergostat.daemon.restarted` (`restarting`: why, its exit, the back-off, `alarm` when the restart raised one),
+`ergostat.daemon.failed` (`given-up`: no more restarts until revived, its alarm) and `ergostat.daemon.stopped`
+(`stopped`: drained, nothing using it or its definition changed, or ergostat stopping; not a warm process replaced, a
+restart the owner asked for, one given up, or one a keeper keeps going). Its fields: `pid`, `restarts`, `serves`,
+`alarm`, `why`, `log`. Its page is its history (starts, restarts, give-ups, stops); its live state between events (its
+last line's time, what it holds in flight, its CPU and memory) stays in `daemons.json`, shown by the Agents page's
+daemons panel, never an event per line. Each row of that panel links to the daemon's object, as its attention row
+does. On the Events page: `type.startswith('ergostat.daemon.')`. (Before daemons were objects their events were about
+the daemon's bare name; those stay as they were, about no object.)
 - **ergostat restarting itself** (its process started again in place: a new model's name, format or store, or the
   watchdog's last resort): just before, every daemon process group it started and has not seen end (not one kept by
   a keeper, which is never in that set and is left going, as a stop leaves it; no test covers that path yet) is sent SIGTERM,

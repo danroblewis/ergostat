@@ -1,3 +1,5 @@
+import { useNavigate } from "react-router-dom";
+import { itemHref } from "../../lib/hrefs";
 import { arrowHead, edgePoints, midOf, roundedPath } from "./geom";
 import { bdCaption, UPKEEP, type Layout } from "./layout";
 import type { Acts } from "./Dynamics";
@@ -12,6 +14,18 @@ function Sym({ fn, x, y, anchor = "middle", size = 13 }: { fn: any; x: number; y
       {fn?.sub && <tspan className="bd-subs" baselineShift="sub" fontSize={size * 0.74}>{fn.sub}</tspan>}
       {fn?.arg && <>(<tspan className="bd-mi">{fn.arg}</tspan>)</>}
     </text>
+  );
+}
+
+/** An alarm raised: its mark, linked to its raising's object (ergostat.alarm/BLOCK/ID) when the snapshot names it. */
+function AlarmMark({ n }: { n: any }) {
+  const navigate = useNavigate();
+  const mark = <text x={0} y={-5} className="bd-note bd-alarm s-off">alarm {n.alarm}</text>;
+  if (!n.alarm_item) return mark;
+  const to = itemHref(n.alarm_item);
+  return (
+    <a href={to} data-alarm-item={n.alarm_item} onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigate(to); }}
+       onMouseDown={(e) => e.stopPropagation()}>{mark}</a>
   );
 }
 
@@ -58,7 +72,7 @@ function BlockBody({ n, w, h }: { n: any; w: number; h: number }) {
       </g>
       {n.upkeep && <text x={w / 2} y={h - 8} className="bd-note sys-upkeep" textAnchor="middle">{UPKEEP}</text>}
       {(n.identified || n.declared) && <text x={w} y={-5} className="bd-note bd-ident" textAnchor="end">{n.identified ? "identified" : n.declared}</text>}
-      {n.alarm && <text x={0} y={-5} className="bd-note bd-alarm s-off">alarm {n.alarm}</text>}
+      {n.alarm && <AlarmMark n={n} />}
     </g>
   );
 }

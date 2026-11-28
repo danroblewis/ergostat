@@ -307,7 +307,7 @@ def test_a_daemon_that_died_while_no_engine_was_up_is_restarted_and_given_what_i
     (tmp_path / "go.die").unlink()
     e = taken_up(p)
     try:
-        again = p.events.query(n=None, type="ergostat.daemon.restarted", item="block.worker")
+        again = p.events.query(n=None, type="ergostat.daemon.restarted", item="ergostat.daemon/block.worker")
         assert len(again) == 1 and "ended while no engine was up" in again[0]["data"]["why"], again
         assert state(p)["proc"] != old["proc"] and state(p)["pid"] != old["pid"]
         items = lambda: [x for x in got(tmp_path) if x["op"] == "item"]   # noqa: E731

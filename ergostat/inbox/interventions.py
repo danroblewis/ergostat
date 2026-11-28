@@ -49,7 +49,8 @@ def read(p, spec, since: float, until: float) -> list[dict]:
     from ..spec.projections import query
     for f in query(p, "ergostat.daemon.failed", n=None, since=since, until=until):   # a daemon given up (§9.7)
         back = query(p, "ergostat.daemon.started", n=None, item=f["item"], after_seq=f["seq"])
-        out.append({"class": f"alarm:daemon:{f['item']}", "cause": ", ".join(f["data"].get("users") or []),
+        name = str(f["item"] or "").removeprefix("ergostat.daemon/")      # (its object, SPEC §9.7; before, its name)
+        out.append({"class": f["data"].get("class") or f"alarm:daemon:{name}", "cause": ", ".join(f["data"].get("users") or []),
                     "time": f["time"], "answered": back[0]["time"] if back else None, "verdict": "revived" if back else None})
     return sorted(out, key=lambda x: x["time"])
 

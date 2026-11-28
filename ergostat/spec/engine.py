@@ -172,6 +172,8 @@ class Engine:
         self.emitter = Emitter(self)                  # what projections publish from their objects (SPEC §5a, emit:)
         from ..faults import Faults
         self.faults = Faults(project, say)            # its own faults, recorded on change (SPEC §9.1)
+        from ..alarms import Alarms
+        self.alarms = Alarms(project)                 # the alarm blocks' raisings, recorded on change (SPEC §9.2)
         self.compute = None                           # the sessions with the pools' nodes, once a model has pools (§12s.4)
         # the loop (``_schedule``): readings asked for, taken a batch at a time; commands and queries read by a fixed
         # pool, counts of items from what the fold keeps (counts.py); then one pass over what changed (scale.md #1, #4)
@@ -481,6 +483,12 @@ class Engine:
         they change, and every one that keeps time. Returns the outputs that changed, the goals whose setpoint changed,
         and the outputs that changed after a built-in reading them was stepped (a delay's loop: seen next pass)."""
         names, pos, readers, timed = self._builtin_wiring()
+        al = getattr(self, "alarms", None)                  # (none in a simulation: numbers/closedloop.py's Shadow)
+        if al is not None and al.open and al.spec_seen is not self.spec:   # (once a model: a gone block's raising cleared)
+            try:
+                self.alarms.prune(self.spec, now, lambda t, **kw: self._event(out, t, **kw))
+            except Exception as e:                          # noqa: BLE001
+                self.faults.failed("alarms", e, "the alarms' raised and cleared events")
         if keys is None:
             heap = list(range(len(names)))
         else:
@@ -510,6 +518,8 @@ class Engine:
                 if self.signals.get(f"{key}/{k}") != x:
                     self.signals[f"{key}/{k}"] = x
                     rows.append((f"block/{name}/{k}", now, x))
+            if blk.b.type == "alarm" and al is not None:    # its raisings, as events on change (ergostat/alarms.py)
+                self._alarm(blk, v, bool(before), now, crossed, out)
             if v is None:
                 if before and self.spec.blocks[name].type == "alarm":
                     rows.append((f"block/{name}", now, 0.0))   # failing, or its input unknown: no longer said raised
@@ -531,6 +541,20 @@ class Engine:
                 if bool(before) != bool(v) or said:
                     self.decided(self.spec.blocks[name], v, now, crossed, out, said)
         return changed, set_goals, late
+
+    def _alarm(self, blk, v, before: bool, now: float, crossed: dict, out: list) -> None:
+        """An alarm block stepped: ``alarm.raised`` or ``alarm.cleared`` when its output turned (its input unknown
+        clears it only when it was on, as its 0 row does); a raising whose block left the model, cleared."""
+        add = lambda t, **kw: self._event(out, t, **kw)              # noqa: E731
+        try:
+            if v is None and not before:
+                return
+            served = [r.name for r in blk.b.reads() if r.kind == "goal"]
+            self.alarms.seen(blk.b, bool(v), getattr(blk, "x", None), now, add,
+                             next((crossed[g] for g in served if g in (crossed or {})), None))
+            self.faults.ok("alarms")
+        except Exception as e:                              # noqa: BLE001  (an alarm's event never stops the pass)
+            self.faults.failed("alarms", e, "the alarms' raised and cleared events")
 
     def _downstream(self, key: str, i: int, heap: list, late: set) -> None:
         names, pos, readers, _ = self._builtin_wiring()

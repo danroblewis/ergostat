@@ -423,7 +423,9 @@ class _Diagram:
         # the blocks of the control system, each once
         for n in self.control:
             self.node(f"blk:{n}", kind="block", system=s.blocks[n].system, label=n, tier=self.tier(n), **self.block_fn(n),
-                      **({"alarm": "raised"} if n in (self.snap.get("alarms") or {}) else {}))
+                      **({"alarm": "raised", **({"alarm_item": (self.snap["alarms"][n] or {})["item"]}
+                                                 if (self.snap["alarms"][n] or {}).get("item") else {})}
+                         if n in (self.snap.get("alarms") or {}) else {}))
         for n in self.control:
             b = s.blocks[n]
             for refs in b.outputs.values():

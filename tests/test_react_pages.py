@@ -505,3 +505,30 @@ def test_the_events_filter_is_the_event_query(browser, site):
     pg.wait_for_function("() => !location.search.includes('unexplained')", timeout=WAIT)
     assert settled(pg) == []
     pg.close()
+
+
+def test_the_daemons_panel_links_each_daemon_to_its_object(browser, tmp_path):
+    import json
+    project_with_items(tmp_path / EXAMPLE)
+    f = tmp_path / EXAMPLE / "ergostat.yaml"
+    f.write_text(f.read_text() + '\ndaemons:\n  tail:\n    run: "sleep 600"\n')
+    p = Project(mdl.load(tmp_path / EXAMPLE))
+    assert "ergostat.daemon" in p.model.spec.items
+    p.events.add("ergostat.daemon.started", item="ergostat.daemon/tail", source="ergostat",
+                 data={"daemon": "tail", "pid": 4242, "restarts": 0, "why": "", "serves": []})
+    (p.dir / "daemons.json").write_text(json.dumps({"at": time.time(), "pid": 1, "daemons": {"tail": {
+        "state": "running", "pid": 4242, "why": "", "alarm": None, "last_line": time.time(), "restarts": 0,
+        "restarts_total": 0, "in_flight": 0, "served": 0, "concurrency": 1, "users": [], "run": "sleep 600"}}}))
+    server, url = web.serve(p, 0)
+    try:
+        pg = opened(browser, url + "/agents")
+        link = pg.locator("tr[data-daemon=tail] a")
+        link.wait_for(timeout=WAIT)
+        assert link.get_attribute("href").endswith("/ergostat.daemon/tail")
+        link.click()
+        pg.wait_for_selector("text=4242", timeout=WAIT)
+        assert settled(pg) == []
+        pg.close()
+    finally:
+        server.shutdown()
+        server.server_close()
