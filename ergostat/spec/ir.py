@@ -410,6 +410,12 @@ def action_kind() -> ItemKind:
                     final={"denied": {"ran": "ran despite denial", "failed": "ran despite denial"}})   # (SPEC §12r)
 
 
+def collector(b) -> bool:
+    """A block only its daemon runs (``daemon:``, no schedule, trigger or lease): a collector, whose output is the events it
+    prints, not a flow it drives."""
+    return bool(b.params.get("daemon")) and not (b.every or b.cron or b.on or b.takes)
+
+
 SESSION = "session"              # the built-in projection for AI sessions, unless the model declares its own (SPEC §12h)
 SESSION_STATES = ("running", "ran", "failed", "lost")
 

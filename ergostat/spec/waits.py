@@ -10,14 +10,14 @@ its projection moves an item into is not one it rests in."""
 from __future__ import annotations
 
 from .finished import finish_of
-from .ir import DEAD, LEASED, template_made
+from .ir import DEAD, LEASED, SESSION, template_made
 
 
 def unexplained(spec) -> list[tuple[object, list[str]]]:
     """(the projection, its states whose waiting cannot be explained), for each of the model's own projections with any."""
     out = []
     for name, k in sorted((getattr(spec, "items", None) or {}).items()):
-        if name.startswith("ergostat.") or k.sealed or template_made(k) or len(k.states) < 2:
+        if name.startswith("ergostat.") or name == SESSION or k.sealed or template_made(k) or len(k.states) < 2:
             continue
         if any(r.precedence for r in k.relations.values()):
             continue

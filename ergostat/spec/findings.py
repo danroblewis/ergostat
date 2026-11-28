@@ -4,7 +4,7 @@ for its limit, a critical goal decaying); those take a project."""
 
 from __future__ import annotations
 
-from .ir import Ref, Spec, template_made
+from .ir import Ref, Spec, collector, template_made
 from .load import Problem
 
 
@@ -31,7 +31,7 @@ def find(spec: Spec, extremes: bool = True) -> list[Problem]:
             say("missing-feedback", f"goal {name}{' (critical)' if g.critical else ''}: missing feedback: {why}", g.where,
                 f"goal.{name}")
     for name, b in spec.blocks.items():
-        if not b.outputs:
+        if not b.outputs and not collector(b):              # a collector's effect is the events it prints
             say("no-visible-effect", f"block {name}: no output, so it has no visible effect: either it does nothing worth "
                 f"modelling, or the flow it changes is missing (out: flow.<name>)", b.where, f"block.{name}")
         if b.type == "external":
