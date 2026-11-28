@@ -739,6 +739,7 @@
             "goal-crossings",
             "goal-decisions",
             "attention",
+            "decisions",
             "legend",
             "feedback-loops",
             "control-loops",
@@ -852,7 +853,8 @@
         "projection": {"type": "string", "minLength": 1},
         "projections": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string"}}]},
         "field": {"type": "string", "minLength": 1},
-        "query": {"type": "string", "minLength": 1}
+        "query": {"type": "string", "minLength": 1},
+        "kinds": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string"}}]}
       },
       "allOf": [
         {
@@ -1109,6 +1111,10 @@
         {
           "if": {"properties": {"panel": {"const": "attention"}}},
           "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "show", "size", "system", "title"]}}
+        },
+        {
+          "if": {"properties": {"panel": {"const": "decisions"}}},
+          "then": {"propertyNames": {"enum": ["panel", "fit", "kinds", "note", "quiet", "size", "system", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "legend"}}},

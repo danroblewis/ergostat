@@ -25,6 +25,7 @@ PARAMS = {
     "finished": {"enum": ["hide", "waits", "show"]}, "states": {"enum": ["all", "groups"]},
     "per_projection": {"type": "integer", "minimum": 1, "maximum": 500},
     "projection": TEXT, "projections": NAMES,
+    "kinds": NAMES,                                   # the decisions panel's: which kinds of entry (change, request, action…)
     "view": {"enum": ["dynamics", "blocks", "process"]},
     "show": {"oneOf": [{"enum": ["waiting", "off", "housekeeping", "suggestions"]},
                        {"type": "array", "minItems": 1, "items": {"enum": ["waiting", "off", "housekeeping", "suggestions"]}}]},
