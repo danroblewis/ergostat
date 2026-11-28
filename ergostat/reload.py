@@ -117,7 +117,7 @@ def write_state(state_dir: Path, errors: list[str] | None, version: str | None =
         pass
 
 
-REFUSED, TAKEN = "model.refused", "model.taken"
+REFUSED, MODEL_TAKEN = "model.refused", "model.taken"    # (not the lease's TAKEN)
 
 
 def noted(p, errors: list[str] | None, version: str | None = None) -> dict | None:
@@ -137,7 +137,7 @@ def noted(p, errors: list[str] | None, version: str | None = None) -> dict | Non
             from .numbers import version as ver
             spec = getattr(p.model, "spec", None)
             now = ver.version(spec) if spec is not None else None
-            return p.events.add(TAKEN, item=name, source="ergostat",
+            return p.events.add(MODEL_TAKEN, item=name, source="ergostat",
                                 data={"version": now, "refused_since": was.get("since"), "errors": was.get("errors"),
                                       "was_running": was.get("running"),
                                       "refused_for": round(time.time() - float(was.get("since") or time.time()), 3)})
