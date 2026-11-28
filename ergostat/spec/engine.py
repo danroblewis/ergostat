@@ -1520,7 +1520,7 @@ class Engine:
         self.p.events.add("sensor.unmeasurable", item=name, source=SOURCE, data={"why": str(why)})
         self.say(f"sensor {s.of.name}.{s.name}: not measurable yet: {why}")
 
-    def measured(self, s: Sensor, failed: bool = False) -> None:
+    def read_back(self, s: Sensor, failed: bool = False) -> None:
         """A sensor that read a value, or failed: no longer unmeasurable (logged once, when it was)."""
         name = sensor_name(s.of.name, s.name)
         if self.unmeasured.get(name) is not None and not failed:
@@ -1535,11 +1535,11 @@ class Engine:
             if v is None and isinstance(why, Unmeasurable):
                 self.unmeasurable(s, why)
             elif v is None:
-                self.measured(s, failed=True)
+                self.read_back(s, failed=True)
                 self.p.events.add("sensor.failed", item=sensor_name(s.of.name, s.name), source=SOURCE, data={"why": why})
                 self.say(f"sensor {s.of.name}.{s.name}: {why}")
             else:
-                self.measured(s)
+                self.read_back(s)
                 self.p.measurements.add(s.series, v)
         except Exception as e:
             self.say(f"sensor {s.of.name}.{s.name}: {type(e).__name__}: {e}")
@@ -1698,17 +1698,17 @@ class Engine:
             for s, v, why, t, err in got:
                 name = sensor_name(s.of.name, s.name)
                 if err is not None:
-                    self.measured(s, failed=True)
+                    self.read_back(s, failed=True)
                     self.p.events.add("sensor.failed", item=name, source=SOURCE, data={"why": f"{type(err).__name__}: {err}"})
                     self.say(f"sensor {s.of.name}.{s.name}: {type(err).__name__}: {err}")
                 elif v is None and isinstance(why, Unmeasurable):   # nothing to measure yet: said once, not a fault
                     self.unmeasurable(s, why)
                 elif v is None:
-                    self.measured(s, failed=True)
+                    self.read_back(s, failed=True)
                     self.p.events.add("sensor.failed", item=name, source=SOURCE, data={"why": why})
                     self.say(f"sensor {s.of.name}.{s.name}: {why}")
                 else:
-                    self.measured(s)
+                    self.read_back(s)
                     rows.append((s.series, t, v))
             if rows:
                 self.p.measurements.add_many(rows)
