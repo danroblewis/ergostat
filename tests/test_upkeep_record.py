@@ -83,7 +83,8 @@ def _old(p: Project, now: float) -> None:
 
 
 def _folds(p: Project) -> dict:
-    return {i.id: (i.state, i.fields) for i in its.project(p.events, p.model.spec)}
+    """The record's items, its runs left out (a run of a block is an object of its own: ergostat.run)."""
+    return {i.id: (i.state, i.fields) for i in its.project(p.events, p.model.spec) if not i.id.startswith("ergostat.run/")}
 
 
 def _program(p: Project, root: Path, monkeypatch, *argv: str) -> int:
