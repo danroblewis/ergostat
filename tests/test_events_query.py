@@ -176,3 +176,19 @@ def test_the_tally_indexes_only_the_new_events(tmp_path):
     emit(p, 2)
     ux.update(p)
     assert len(ix.unexplained()) == 8
+
+
+def test_two_processes_indexing_one_file_never_clash_on_a_new_path(tmp_path):
+    """The engine, the page's server and a sensor's program each open the index: a path one adds is the other's too (no
+    UNIQUE paths.path error), a query in the other finds events under it, and no event is indexed twice."""
+    p = project(tmp_path)
+    a, b = eq.Index(p.events), eq.Index(p.events)                       # two processes' handles on one file
+    p.events.add("aws.eventbridge", source="ec2-feed", data={"detail": {"brand_new_path": "x"}})
+    assert a.catch_up() == 1
+    p.events.add("aws.eventbridge", source="ec2-feed", data={"detail": {"brand_new_path": "y"}})
+    assert b.catch_up() == 1                                           # b never saw a's new path: no IntegrityError
+    assert len(b.lookup("data.detail.brand_new_path", "x")) == 1        # a's path, found by b
+    assert a.catch_up() == 0                                           # nothing indexed twice
+    n = a.db.execute("select count(*) from post p join paths x on x.id = p.p where x.path = 'data.detail.brand_new_path'")
+    assert n.fetchone()[0] == 2
+    a.close(), b.close()

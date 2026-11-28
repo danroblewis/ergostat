@@ -133,31 +133,54 @@ class Index:
         return r[0] if r else default
 
     def _pid(self, path: str, make: bool = True) -> int | None:
+        """A path's id. The cache is this process's; others (the engine, the page's server, a sensor's program) add paths
+        to the same file, so a miss asks the file, and a new path is added only if no one has (insert or ignore)."""
         i = self._paths.get(path)
-        if i is None and make:
-            i = self.db.execute("insert into paths(path) values (?)", (path,)).lastrowid
-            self._paths[path] = i
+        if i is None:
+            if make:
+                self.db.execute("insert or ignore into paths(path) values (?)", (path,))
+            r = self.db.execute("select id from paths where path = ?", (path,)).fetchone()
+            i = r[0] if r else None
+            if i is not None:
+                self._paths[path] = i
         return i
+
+    def _fresh(self) -> None:
+        """The path cache dropped when the file was made again (by this process or another): its ids are gone."""
+        epoch = self._meta("epoch", 0)
+        if epoch != getattr(self, "_epoch", None):
+            self._paths, self._epoch = {}, epoch
+
+    def _reset(self, script: str) -> None:
+        self.db.executescript(script)
+        self.db.execute("insert or replace into meta(key, value) values ('epoch', ?)", (time.time(),))
+        self.db.commit()
+        self._fresh()
 
     def catch_up(self) -> int:
         """Every event recorded since the last one indexed, indexed; how many. The record gone back (a fresh one,
         events taken out) rebuilds it."""
         gen = getattr(self.events, "generation", lambda: 0)()
+        self._fresh()
         if self._meta("version") != VERSION or self._meta("generation", gen) != gen:
-            self.db.executescript(RESET)
-            self._paths = {}
+            self._reset(RESET)
         last = int(self._meta("last", 0) or 0)
         if last > self.events.last_seq():
-            self.db.executescript(RESET + UNEXPLAINED_RESET)
-            self._paths, last = {}, 0
+            self._reset(RESET + UNEXPLAINED_RESET)
+            last = 0
         n = 0
         while True:
-            evs = self.events.query(n=None, after_seq=last, first=CHUNK)
-            if not evs:
+            if not self.events.query(n=None, after_seq=last, first=1):
                 break
             t0 = time.perf_counter()
             self.db.execute("begin immediate")
             try:
+                self._fresh()
+                last = int(self._meta("last", 0) or 0)      # another process may have indexed these meanwhile
+                evs = self.events.query(n=None, after_seq=last, first=CHUNK)
+                if not evs:
+                    self.db.execute("commit")
+                    break
                 self.db.executemany("insert or replace into ev(seq, id, time, type, item, source, data) values (?,?,?,?,?,?,?)",
                                     [(e["seq"], e["id"], e["time"], e["type"], e.get("item"), e.get("source"),
                                       json.dumps(e.get("data") or {}, separators=(",", ":"), default=str)) for e in evs])
@@ -173,6 +196,7 @@ class Index:
                 self.db.execute("commit")
             except BaseException:
                 self.db.execute("rollback")
+                self._paths = {}                              # ids it cached in the rolled-back transaction are gone
                 raise
             self.upkeep["events"] += len(evs)
             self.upkeep["seconds"] += time.perf_counter() - t0
