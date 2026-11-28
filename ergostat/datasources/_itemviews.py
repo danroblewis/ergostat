@@ -117,11 +117,17 @@ def _definitions(spec, finished: dict[str, list[str]]) -> dict[str, str]:
     names = "left join main.names {a} on {a}.id = {c}"
     ended = " ".join(f"when k.name = {_q(k)} and n.name in ({', '.join(map(_q, fs))}) then n.name"
                      for k, fs in sorted(finished.items()) if fs)
+    moved = " ".join(names.format(a=a, c=c) for a, c in (("f", "m.frm"), ("y", "m.type")))
+    # (transitions: each projection's moves joined to its own table, so a query of one projection reads its moves once;
+    #  joined to ``items``, the UNION ALL of every projection's table, an SQLite before 3.51 read them once a table)
     out = {
-        "transitions": "select i.id as id, k.name as projection, m.t as at, f.name as from_state, d.name as to_state, "
-        "m.event as event, y.name as type from main.names k join main.moves m on m.kind = k.id "
-        "join main.names d on d.id = m.dst join main.items i on i.rid = m.rid "
-        + " ".join(names.format(a=a, c=c) for a, c in (("f", "m.frm"), ("y", "m.type"))),
+        "transitions": " union all ".join(
+            f"select i.id as id, {_q(kind)} as projection, m.t as at, f.name as from_state, d.name as to_state, "
+            f"m.event as event, y.name as type from main.names k join main.moves m on m.kind = k.id "
+            f"join main.names d on d.id = m.dst join main.{table_of(kind)} i on i.rid = m.rid {moved} "
+            f"where k.name = {_q(kind)}" for kind in sorted(getattr(spec, "items", None) or {}))
+        or "select null as id, null as projection, null as at, null as from_state, null as to_state, null as event, "
+           "null as type where 0",
         "item_fields": "select i.id as id, k.name as projection, j.key as field, j.value as value "
         f"from main.items i {names.format(a='k', c='i.kind')} join json_each(_fields(i.body)) j",
         "item_spans": "select i.id as id, k.name as projection, d.name as state, s.t as entered, s.nxt as \"left\", "
@@ -446,7 +452,10 @@ def opened(ix, spec, deadline: float, text: str | None = None, why: list | None 
         #             (what the definitions read: the projections' tables, through ``items`` or each its own; json_each
         #              is item_fields' and item_labels')
         c.set_authorizer(_authorizer(why, lambda db, a: (db == "main" and a in tables) or (db == "temp" and a in names),
-                                     FUNCTIONS | {"_fields", "json_each"}, names | (own or set())))
+                                     FUNCTIONS | {"_fields", "json_each"}, names | tables | (own or set())))
+        #   (``tables`` read with no database too: an SQLite before 3.51 reads each table of ``items``' UNION ALL
+        #    with no column and no database when a definition reads none of its columns; the text passed ``check``,
+        #    which refused a read of them of its own)
         yield c, why
         c.set_authorizer(None)
         c.execute("commit")
