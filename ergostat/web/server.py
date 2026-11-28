@@ -23,6 +23,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from .. import graph, history, series
 from .. import model as mdl
 from .. import state as st
+from ..eventquery import QueryError
 from ..remote.items import RemoteRefused
 from ..reports.crash import noted as crash_noted
 from ..series import off_stretches
@@ -1098,6 +1099,13 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         if one("system"):                         # a system's Events: what is behind what it contains (SPEC §4f)
             from ..spec.routes import events_of
             span["scoped"] = events_of(getattr(m, "spec", None), one("system"))
+        if (one("query") or "").strip():               # the Events dashboard's query: the event query, through its index
+            from ..eventquery import listed
+            spec = getattr(m, "spec", None)
+            return listed(p.events, one("query"), spec=spec, n=n, since=span.get("since"), until=span.get("until"),
+                          scope={**{k: one(k) for k in ("item", "machine", "source", "match") if one(k)},
+                                 **({"scoped": span["scoped"]} if "scoped" in span else {})},
+                          skip=() if one("runs") else ("agent.started", "agent.ran"))
         if one("about") or one("match"):          # the Record's filter box, or a crossing's goal (details.js)
             return _record_rows(p, m, snap, one("about"), one("match"), n, skip, span,
                                 {k: one(k) for k in ("item", "machine", "source") if one(k)})
@@ -1608,6 +1616,8 @@ def handler(project):
                     return self._send(400, json.dumps({"error": str(e)}).encode(), "application/json")
                 except RemoteRefused as e:              # a remote not named, not answering, or asked enough (SPEC §4c)
                     return self._send(e.code, json.dumps({"error": e.why, "ok": False}).encode(), "application/json")
+                except QueryError as e:                 # an Events query that is not one: said, as the asker's
+                    return self._send(400, json.dumps({"error": str(e)}).encode(), "application/json")
                 except Exception as e:                  # a broken request never takes the page down
                     crash_noted(live, e, "web")                # a report for the owner (SPEC §12m)
                     return self._send(500, json.dumps({"error": f"{type(e).__name__}: {e}"}).encode(), "application/json")

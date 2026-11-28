@@ -33,12 +33,14 @@ function language(source: CodeEditorProps["source"], views: Record<string, strin
 // a function's name (PromQL's rate, sum...) a class of its own: classHighlighter calls it a variable
 const functions = tagHighlighter([{ tag: tags.function(tags.variableName), class: "tok-function" }]);
 
-export default function CodeEditor({ source, value, onChange, views, label, placeholder, problems, events, shape }: CodeEditorProps) {
+export default function CodeEditor({ source, value, onChange, views, label, placeholder, problems, events, shape, onSubmit }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const lang = useRef(new Compartment());
   const changed = useRef(onChange);
   changed.current = onChange;
+  const submitted = useRef(onSubmit);
+  submitted.current = onSubmit;
   // a text set from outside is not said back: said back, it would undo an edit made from outside in the same moment
   const outside = useRef(false);
   const known = useRef<Shape>(emptyShape());          // what an expression completes, as it is now
@@ -57,7 +59,10 @@ export default function CodeEditor({ source, value, onChange, views, label, plac
         extensions: [
           history(), drawSelection(), bracketMatching(), closeBrackets(),
           autocompletion({ activateOnTyping: true, icons: false }),
-          keymap.of([{ key: "Tab", run: acceptCompletion }, ...closeBracketsKeymap, ...completionKeymap, ...historyKeymap, ...defaultKeymap]),
+          keymap.of([{ key: "Tab", run: acceptCompletion }, ...closeBracketsKeymap, ...completionKeymap,
+            // a one-line box: Enter (a completion's popup closed: completionKeymap takes it first) says it is done
+            { key: "Enter", run: (v) => { const s = submitted.current; if (!s) return false; s(v.state.doc.toString()); return true; } },
+            ...historyKeymap, ...defaultKeymap]),
           syntaxHighlighting(functions), syntaxHighlighting(classHighlighter),
           lang.current.of(language(source, views, () => known.current)),
           EditorView.lineWrapping,

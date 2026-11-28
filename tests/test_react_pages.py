@@ -473,3 +473,35 @@ def test_a_group_of_unexplained_events_links_its_events_and_shows_its_examples(b
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_the_events_filter_is_the_event_query(browser, site):
+    """The Events dashboard's filter is the workbench's box (CodeMirror): a word typed and Enter is a full-text search,
+    kept in the address (q=); an expression filters; "Unexplained only" puts unexplained() in the query and, with
+    nothing indexed, says what counts them."""
+    pg = opened(browser, site + "/events")
+    heading(pg)
+    box = pg.locator(".events-query .cm-content")
+    box.wait_for(timeout=WAIT)
+    box.click()
+    pg.keyboard.type("working")
+    pg.keyboard.press("Escape")                                          # a completion's popup closed: Enter is done
+    pg.keyboard.press("Enter")
+    pg.wait_for_url("**/events?q=working", timeout=WAIT)
+    pg.wait_for_function("() => document.querySelector(\"[data-testid='events-query-count']\")?.textContent"
+                         ".startsWith('2 events match')", timeout=WAIT)
+    assert "ticket.working" in pg.locator(".panel-events").first.inner_text()
+    assert "ticket.opened" not in pg.locator(".panel-events table").first.inner_text()
+    pg.goto(site + "/events?q=" + quote("key == 'ticket/3' and type == 'ticket.done'"), wait_until="load")
+    pg.wait_for_function("() => document.querySelector(\"[data-testid='events-query-count']\")?.textContent"
+                         ".startsWith('1 event match')", timeout=WAIT)
+    assert pg.locator(".events-query .cm-content").inner_text().strip() == "key == 'ticket/3' and type == 'ticket.done'"
+    pg.get_by_label("Unexplained only").check()
+    pg.wait_for_url("**/events?q=unexplained*", timeout=WAIT)
+    pg.wait_for_selector("[data-testid='events-unexplained-note']", timeout=WAIT)
+    assert "modelling's events loop" in pg.locator("[data-testid='events-unexplained-note']").inner_text()
+    assert pg.locator(".events-query .cm-content").inner_text().strip().startswith("unexplained() and ")
+    pg.get_by_label("Unexplained only").uncheck()
+    pg.wait_for_function("() => !location.search.includes('unexplained')", timeout=WAIT)
+    assert settled(pg) == []
+    pg.close()

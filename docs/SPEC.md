@@ -2098,7 +2098,7 @@ from these same panels, so a section seen on one page can be put on any dashboar
 | `item-state-timeline` | `GET /api/items/ITEM`: its states over time as one band (each value a colour, each span from entered to left; from its moves, else its `state` field's changes), and the time spent in each | `item` (needed) |
 | `item-field-chart` | `GET /api/items/ITEM?history=all`: a small line chart of a numeric field's value at each change | `item` (needed), `field` (that field; left out, each `number`, `integer` or `duration` field, or one that is a number, that changed at least twice) |
 | `item-events-histogram` | `GET /api/items/ITEM`: its events (the latest 500) per time bucket, stacked by kind of event (the projection's kind that took it, else its type) | `item` (needed) |
-| `events` | `GET /api/events`: the record's events, newest first; with `remote`, that remote's, read there (section 4c) | `match` (a type as a glob, an item or a source), `item`, `about` (a goal), `machine`, `runs`, `window`, `from`, `to` (seconds since 1970), `n` (1 to 500), `remote` (a remote of the model's), `system` (the events behind what it contains: those about an item of a projection it contains, or from one of its blocks or agents) |
+| `events` | `GET /api/events`: the record's events, newest first; with `remote`, that remote's, read there (section 4c) | `match` (a type as a glob, an item or a source), `query` (the event query: words a full-text search, else an expression; `unexplained()`; section 5a, *The Events dashboard's query*), `item`, `about` (a goal), `machine`, `runs`, `window`, `from`, `to` (seconds since 1970), `n` (1 to 500), `remote` (a remote of the model's), `system` (the events behind what it contains: those about an item of a projection it contains, or from one of its blocks or agents) |
 | `goal-crossings`, `goal-decisions` | `GET /api/loops/GOAL`: its crossings, each a link to the Events; its controller's decisions, alike when only their numbers differ | `goal` (needed) |
 | `attention` | `GET /api/status`: what asks for the owner | `show` (any of `waiting`, `off`, `housekeeping`, `suggestions`; all when left out), `system` (what is about a goal, agent or item it contains) |
 | `decisions` | `GET /api/inbox`: what waits on a person (what `ergostat inbox` lists), each a card answered in place (section 12o) | `kinds` (any of `action`, `person`, `advise`, `steptest`, `change`, `request`, `breaker`; all when left out), `system` (those about a block it contains, or a request about its parts; the top level: all) |
@@ -3802,6 +3802,29 @@ query whose last part is evaluated (`data.detail.eventName == 'RunInstances' and
 an event); `has('I-…')` of one instance's id (25 events, exact) 1.7 ms, narrowed by `and data.detail.eventName ==
 'RunInstances'` (1, exact) 3.3 ms, `has('ec2')` (every event, 201,000, exact) 36 ms, and `has('i-')` (two
 characters: a scan, capped at 50,000) 402 ms; the other queries' times unchanged.
+
+**The Events dashboard's query** (2026-11-28). The Events dashboard's filter is this query, in the workbench's box
+(the shared CodeMirror editor: highlighted, completing paths, values and functions; Enter or **Filter** applies it):
+plain words with no operators are a full-text search (`aws` is `has('aws')`; several words must all match); anything
+else is an expression of the event (`source == 'ec2-feed' and data.detail.state == 'running'`). It is kept in the
+address (`/events?q=…`), so a link opens the same view; the old `match=` (an event's type as a glob, an item or a
+source, exactly) still works beside it, said among the scope's words, and the scope (`item=`, `machine=`, `from=`,
+`to=`, `window=1`, `runs=1`, the system) narrows the query as terms of its own. It is asked as `GET
+/api/events?query=…` (with the scope's words): the newest `n` that match, oldest first as the record lists them, with
+`total`, how it was read (`exact`, `candidates`, `scanned`, `walked`: the events read to fill the page, at most
+20,000), and the panel says the count and how. Any events panel takes it as `query:` (a dashboard saved in the
+model keeps its query; `ergostat check` refuses one that does not parse, at its line).
+
+`unexplained()` is the events no projection takes, by the unexplained events' tally's rule (section 12e): not
+ergostat's own, not a projection's published event, no projection reads it and keys it, its group not ignored by
+the modelling template's `ignore-events`. The tally (`numbers/unexplained.py`, the events loop's sensor) writes a
+posting per unexplained event into this index as it reads each new event (a cost per new event only, never a scan);
+at query time only the candidates shown are held again against the model's projections (at most 5,000 an answer): one
+a projection now takes drops out and its posting is taken out, one the owner now ignores is left out (`dropped`
+counts both). The Events dashboard's **Unexplained only** puts `unexplained()` in the query (`unexplained() and …`)
+and takes it out. With nothing indexing them (no tally has run: the modelling template's events loop is off), the
+answer says so (`unexplained`: "unexplained events are counted by modelling's events loop…"), and the page shows it.
+`unexplained()` is the Events query's only: a projection's `query:` cannot use it.
 
 **The workbench** (`spec/workbench.py`; the page is built on these answers, an agent uses them the same way; every list
 capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 transitions, 200 timeline steps):

@@ -23,7 +23,8 @@ inbox dismisses it too, in the record, until it is raised again.)
 counts them per group and day, and keeps the newest ``SAMPLES`` ids of each. When the model's projections change, each
 group is held again by its samples alone: a group none of whose samples is unexplained now is gone, one some of them
 are is scaled by that share (said ``estimated`` until it is counted on). When events are taken out (a prune, a
-roll-up: the record's generation moved), the days before the record's first event are dropped.
+roll-up: the record's generation moved), the days before the record's first event are dropped. Each unexplained
+event read is also a posting in the event-query index (``unexplained()`` in the Events query, eventquery.py).
 
 **The judge's rule for a change to the projections** (``judged``): the change applied beside the model, the events of
 the groups it cites (the newest ``JUDGE_MOST`` of each, by its indexed type) are counted unexplained before and after,
@@ -226,9 +227,11 @@ def update(p, spec=None, most: int = CHUNK) -> dict:
                 if not x["days"]:
                     del st["groups"][k]
         st["gen"] = gen
-        if p.events.last_seq() < int(st.get("seq") or 0):        # a record made again: counted again from its start
+        again = p.events.last_seq() < int(st.get("seq") or 0)
+        if again:                                                 # a record made again: counted again from its start
             st.update(seq=0, groups={}, own=0, read=0)
         new = p.events.query(n=None, after_seq=int(st.get("seq") or 0), skip=(TRANSCRIPT_TYPES,), first=most)
+        found = []
         for e in new:
             st["read"] = int(st.get("read") or 0) + 1
             if own(e):
@@ -237,11 +240,23 @@ def update(p, spec=None, most: int = CHUNK) -> dict:
             r = why(spec, e)
             if r is not None:
                 _bump(st["groups"], e, r)
+                found.append(e["seq"])
         if new:
             st["seq"] = max(int(st.get("seq") or 0), max(int(e["seq"]) for e in new))
         if len(new) < most:
             st["seq"] = max(int(st.get("seq") or 0), p.events.last_seq())
+        _indexed(p, found, int(st["seq"] or 0), again)
         return json.loads(json.dumps(st))
+
+
+def _indexed(p, seqs: list[int], upto: int, again: bool) -> None:
+    """Each unexplained event a posting in the event-query index (``unexplained()``, eventquery.py), as it is read:
+    the query re-checks only the ones it shows. Never fails the tally."""
+    try:
+        from ..eventquery import mark_unexplained
+        mark_unexplained(p.events, seqs, upto, again)
+    except Exception:                               # noqa: BLE001 - the index is a convenience; the tally is the count
+        pass
 
 
 def groups(p, spec=None, st: dict | None = None) -> list[dict]:

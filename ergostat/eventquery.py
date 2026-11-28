@@ -12,6 +12,11 @@ that the index answers exactly (every part of the expression one of those, on an
 the ones shown; otherwise the expression is evaluated on the candidates (at most ``EVALUATE_MOST``, the newest first).
 A query no part of which the index can answer is a scan (``scanned: true``), of the newest ``SCAN_MOST`` events.
 
+``unexplained()``: the events no projection takes, from the postings the unexplained events' tally writes as it reads
+each new event (``mark_unexplained``, numbers/unexplained.py); the Events dashboard's answer (``listed``) holds only
+the candidates it shows against the model's projections again. ``listed`` is ``GET /api/events?query=``: plain words a
+full-text search (``as_query``), the page's scope words terms of the query (SPEC §5a, *The Events dashboard's query*).
+
 The answer: the matching events, newest first (``limit``, at most ``LIMIT_MOST``), the total, how it was answered,
 and, given ``compare`` (an earlier query), how many events this one adds and drops against it."""
 
@@ -20,6 +25,7 @@ from __future__ import annotations
 import ast
 import json
 import random
+import re
 import sqlite3
 import threading
 import time
@@ -42,9 +48,15 @@ create index if not exists ev_time on ev(time);
 create table if not exists post (p integer not null, v text not null, seq integer not null);
 create index if not exists post_pv on post(p, v, seq);
 create virtual table if not exists txt using fts5(t, tokenize='trigram case_sensitive 1', content='', detail=full);
+create table if not exists unexplained (seq integer primary key);
+create table if not exists unexplained_state (key text primary key, value);
 """
 SEP = "\x1f"               # between an event's texts in its text row (a searched text never holds it: no match spans two)
 RESET = "delete from ev; delete from post; delete from paths; delete from meta; insert into txt(txt) values('delete-all');"
+UNEXPLAINED_RESET = "delete from unexplained; delete from unexplained_state;"   # (a record made again; else kept)
+UNEXPLAINED_UNINDEXED = "unexplained events are counted by modelling's events loop: nothing has indexed them yet"
+RECHECK_MOST = 5000        # unexplained() candidates held against the projections in one answer, at most
+WALK_MOST = 20_000         # events an Events page's answer reads to fill its page, at most
 _LOCK = threading.RLock()   # also held through a query: one connection, shared by the server's threads
 
 
@@ -136,7 +148,7 @@ class Index:
             self._paths = {}
         last = int(self._meta("last", 0) or 0)
         if last > self.events.last_seq():
-            self.db.executescript(RESET)
+            self.db.executescript(RESET + UNEXPLAINED_RESET)
             self._paths, last = {}, 0
         n = 0
         while True:
@@ -203,6 +215,15 @@ class Index:
     def all(self) -> set[int]:
         return {r[0] for r in self.db.execute("select seq from ev")}
 
+    def unexplained(self) -> set[int]:
+        """The events the unexplained events' tally (numbers/unexplained.py) found no projection takes."""
+        return {r[0] for r in self.db.execute("select seq from unexplained")}
+
+    def unexplained_indexed(self) -> int | None:
+        """How far the tally has indexed the record (its cursor), or None when it never has."""
+        r = self.db.execute("select value from unexplained_state where key = 'seq'").fetchone()
+        return int(r[0]) if r else None
+
     def window(self, since: float | None, until: float | None) -> set[int] | None:
         if since is None and until is None:
             return None
@@ -250,13 +271,21 @@ def index_for(events) -> Index:
 
 # ---- planning
 
+def _unexplained(_current):          # (never called: _env gives each event its own, by its posting)
+    return False
+
+
+QUERY_FUNCTIONS = {"unexplained": _unexplained}
+
+
 def compile_query(text: str):
-    """A query's expression (handlers.Value); QueryError when it is not one."""
+    """A query's expression (handlers.Value); QueryError when it is not one. ``unexplained()``: the events no
+    projection takes (the unexplained events' tally's postings)."""
     from .spec.handlers import BadExpr, compile_value
     if not isinstance(text, str) or not text.strip():
         raise QueryError("query: an expression of the event (type == 'x', data.a.b == 'y', ...)")
     try:
-        return compile_value(text, {}, ("data", "time", "type", "key", "source"))
+        return compile_value(text, QUERY_FUNCTIONS, ("data", "time", "type", "key", "source"))
     except BadExpr as e:
         raise QueryError(f"query: {e}") from None
 
@@ -354,6 +383,9 @@ class Plan:
                     if got is not None:
                         self.used.append("text")
                         return got, len(n.args) == 1           # has(VALUE, 'x'): the event's text has it; VALUE's, evaluated
+            if isinstance(f, ast.Name) and f.id == "unexplained" and not n.args:
+                self.used.append("unexplained")
+                return self.ix.unexplained(), True
             if isinstance(f, ast.Name) and f.id == "glob" and len(n.args) == 2:
                 p = path_of(n.args[0])
                 ok, c = _const(n.args[1])
@@ -375,9 +407,17 @@ class Plan:
 
 # ---- answering
 
-def _env(e: dict) -> dict:
-    return {"data": e.get("data") or {}, "time": e.get("time"), "type": e.get("type"), "key": e.get("item"),
-            "source": e.get("source")}
+def _env(e: dict, unexplained: set[int] | None = None) -> dict:
+    out = {"data": e.get("data") or {}, "time": e.get("time"), "type": e.get("type"), "key": e.get("item"),
+           "source": e.get("source")}
+    if unexplained is not None:
+        out["functions"] = {"unexplained": (lambda _c, _u=e.get("seq") in unexplained: _u)}
+    return out
+
+
+def _uses_unexplained(q) -> bool:
+    return q.tree is not None and any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                                      and n.func.id == "unexplained" for n in ast.walk(q.tree))
 
 
 def matches(ix: Index, q, since=None, until=None, sample: int | None = None) -> dict:
@@ -410,9 +450,10 @@ def matches(ix: Index, q, since=None, until=None, sample: int | None = None) -> 
     else:
         ratio = None
     got = []
+    ux = ix.unexplained() if _uses_unexplained(q) else None
     for i in range(0, len(seqs), 2000):
         for e in ix.events_of(seqs[i:i + 2000]):
-            if evaluate(q, _env(e)):
+            if evaluate(q, _env(e, ux)):
                 got.append(e["seq"])
     out.update(seqs=got, total=round(len(got) * ratio) if ratio else len(got), read=len(seqs))
     if ratio:
@@ -482,3 +523,133 @@ def _matching(events, q, since, until, most: int) -> tuple[list[dict], dict]:
         m["capped"] = True
         seqs = seqs[:most]
     return ix.events_of(sorted(seqs)), m
+
+
+# ---- the unexplained events' postings (written by the tally, numbers/unexplained.py)
+
+def _opened(events) -> Index:
+    """The record's query index, kept open, not caught up (the tally writes its postings by seq alone)."""
+    d = state_dir(events)
+    k = str(d) if d is not None else f"mem:{id(events)}"
+    ix = _OPEN.get(k)
+    if ix is None or ix.events is not events:
+        if ix is not None:
+            ix.close()
+        ix = _OPEN[k] = Index(events)
+    return ix
+
+
+def mark_unexplained(events, seqs: list[int], upto: int, again: bool = False) -> None:
+    """The tally's postings: ``seqs`` unexplained, the record read up to ``upto``; ``again``: it counts from the
+    record's start (every posting before taken out). A cost per new event only."""
+    with _LOCK:
+        ix = _opened(events)
+        ix.db.execute("begin immediate")
+        try:
+            if again:
+                ix.db.execute("delete from unexplained")
+            ix.db.executemany("insert or ignore into unexplained(seq) values (?)", [(int(s),) for s in seqs])
+            ix.db.execute("insert or replace into unexplained_state(key, value) values ('seq', ?)", (int(upto),))
+            ix.db.execute("commit")
+        except BaseException:
+            ix.db.execute("rollback")
+            raise
+
+
+def _recheck(spec, e: dict) -> str | None:
+    """The tally's rule, held now: None while the event is still unexplained; ``taken`` when a projection takes it
+    now (or it is ergostat's own), ``ignored`` when the owner's ignore-events ignores its group."""
+    from .numbers import unexplained as ux
+    if ux.own(e) or ux.why(spec, e) is None:
+        return "taken"
+    return "ignored" if ux.ignored(spec, ux.group_of(e)[1]) else None
+
+
+# ---- the Events dashboard's query (SPEC §5a, *The Events dashboard's query*)
+
+_WORD = re.compile(r"^[^\s'\"()\[\]=!<>+*,]+$")
+_KEYWORDS = {"and", "or", "not", "in", "is", "if", "else"}
+
+
+def as_query(text: str) -> str:
+    """The Events dashboard's box: plain words with no operators a full-text search (``aws`` → ``has('aws')``, several
+    words all of them), anything else the expression it is."""
+    words = (text or "").split()
+    if words and all(_WORD.match(w) and w.lower() not in _KEYWORDS for w in words):
+        return " and ".join(f"has({w!r})" for w in words)
+    return (text or "").strip()
+
+
+def scope_terms(scope: dict) -> list[str]:
+    """The Events dashboard's scope words as terms of the query: ``item``, ``source``, ``machine`` (that source or its
+    instances), ``match`` (an exact type glob, item or source: the old filter), ``scoped`` (a system's item globs and
+    sources)."""
+    out = []
+    if scope.get("item"):
+        out.append(f"key == {scope['item']!r}")
+    if scope.get("source"):
+        out.append(f"source == {scope['source']!r}")
+    if scope.get("machine"):
+        m = str(scope["machine"])
+        out.append(f"(source == {m!r} or source.startswith({m + '/'!r}))")
+    if scope.get("match"):
+        m = str(scope["match"])
+        out.append(f"(glob(type, {m!r}) or key == {m!r} or source == {m!r})")
+    if scope.get("scoped") is not None:
+        globs, sources = scope["scoped"]
+        ors = [f"glob(key, {str(g)!r})" for g in globs] + \
+              [f"source == {str(s)!r} or source.startswith({str(s) + '/'!r})" for s in sources]
+        out.append("(" + " or ".join(ors) + ")" if ors else "false")
+    return out
+
+
+def listed(events, text: str, *, spec=None, n: int = 80, since=None, until=None, scope: dict | None = None,
+           skip: tuple[str, ...] = ()) -> dict:
+    """``GET /api/events?query=``: the newest ``n`` events the query holds for (oldest first, as the record lists
+    them), within the scope, the types in ``skip`` (globs) left out; read through the index, never a scan of the
+    record (a query no part of which is indexed: the newest ``SCAN_MOST`` evaluated). With ``unexplained()``, each
+    candidate shown is held again against the model's projections (``spec``): one a projection now takes drops out
+    (its posting taken out), at most ``RECHECK_MOST`` held an answer."""
+    import fnmatch
+    asked = as_query(text)
+    q = compile_query(" and ".join([f"({asked})", *scope_terms(scope or {})]))
+    with _LOCK:
+        t0 = time.perf_counter()
+        ix = index_for(events)
+        m = matches(ix, q, since, until)
+        seqs = m.pop("seqs")
+        ux = ix.unexplained() if _uses_unexplained(q) and spec is not None else None
+        kept: list[dict] = []
+        read = rechecked = dropped = 0
+        taken: list[int] = []
+        for i in range(0, len(seqs), 200):
+            if len(kept) >= n or read >= WALK_MOST:
+                break
+            for e in ix.events_of(seqs[i:i + 200]):
+                read += 1
+                if skip and any(fnmatch.fnmatchcase(str(e["type"]), g) for g in skip):
+                    continue
+                if ux is not None and e["seq"] in ux and rechecked < RECHECK_MOST:
+                    rechecked += 1
+                    said = _recheck(spec, e)
+                    if said is not None:
+                        dropped += 1
+                        if said == "taken":            # a projection takes it now: no longer a candidate
+                            taken.append(e["seq"])
+                        continue
+                kept.append(e)
+                if len(kept) >= n:
+                    break
+        if taken:
+            ix.db.executemany("delete from unexplained where seq = ?", [(s,) for s in taken])
+            ix.db.commit()
+        out = {"query": asked, "total": max(0, m.pop("total") - dropped), **m, "walked": read, "record": ix.count()}
+        if ux is not None:
+            out.update(rechecked=rechecked, dropped=dropped)
+        if _uses_unexplained(q) and ix.unexplained_indexed() is None:
+            out["unexplained"] = UNEXPLAINED_UNINDEXED
+        out["took_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+    shown = [(events.get(e["id"]) if hasattr(events, "get") else None) or e for e in kept]   # as the record holds it
+    out["events"] = sorted(shown, key=lambda e: e["seq"])
+    out["shown"] = len(shown)
+    return out

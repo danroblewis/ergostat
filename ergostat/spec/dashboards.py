@@ -118,12 +118,23 @@ CHECKS_ITEMS = {
 # ---- the record group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/record.tsx): KIND → its parameters
 KINDS.update({
     # GET /api/events: the record's events, newest first (the Record page's own); remote: a remote's, read there
-    "events": {"match", "item", "about", "machine", "runs", "window", "from", "to", "n", "remote", "system"},
-    #   system: the events behind what that system contains (its projections' items, its blocks' and agents' own)
+    "events": {"match", "query", "item", "about", "machine", "runs", "window", "from", "to", "n", "remote", "system"},
+    #   system: the events behind what that system contains (its projections' items, its blocks' and agents' own);
+    #   query: the event query (eventquery.py: plain words a full-text search, else an expression; unexplained())
     "goal-crossings": {"goal"},                           # GET /api/loops/{goal}: its crossings in the window
     "goal-decisions": {"goal"},                           # GET /api/loops/{goal}: its controller's decisions, alike
 })
 NEEDS_RECORD: dict[str, str] = {"goal-crossings": "goal", "goal-decisions": "goal"}   # KIND → the parameter it cannot do without
+
+
+def _bad_query(text: str) -> str | None:
+    """What is wrong with an events panel's query (eventquery.compile_query's words), or None."""
+    from ..eventquery import QueryError, as_query, compile_query
+    try:
+        compile_query(as_query(text))
+    except QueryError as e:
+        return str(e)
+    return None
 
 
 def _check_record(c, spec, kind: str, x, at, what: str) -> bool:
@@ -137,6 +148,10 @@ def _check_record(c, spec, kind: str, x, at, what: str) -> bool:
         v, w = x[k], at(k)
         if k in ("match", "item", "about", "machine", "remote") and (not isinstance(v, str) or not v.strip()):
             c.err(f"{what}.{k}: text", w, "bad-dashboard")
+        elif k == "query" and (not isinstance(v, str) or not v.strip()):
+            c.err(f"{what}.query: the event query, as text (aws, or source == 'feed' and unexplained())", w, "bad-dashboard")
+        elif k == "query" and (bad := _bad_query(v)):
+            c.err(f"{what}.{bad}", w, "bad-dashboard")
         elif k in ("runs", "window") and not isinstance(v, bool):
             c.err(f"{what}.{k}: true or false", w, "bad-dashboard")
         elif k in ("from", "to") and (isinstance(v, bool) or not isinstance(v, int | float) or not 0 <= v < 1e11):

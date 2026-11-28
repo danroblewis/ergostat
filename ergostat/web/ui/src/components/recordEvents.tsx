@@ -21,6 +21,7 @@ export function NothingRecorded({ match, scope = {} }: { match?: string; scope?:
   const q = new URLSearchParams(onEvents ? here.search
     : Object.entries(rest0).filter(([, v]) => v != null && v !== "" && v !== false).map(([k, v]) => [k, v === true ? "1" : String(v)]));
   q.delete("match");
+  q.delete("q");
   q.delete("filter");
   q.delete("type");
   const rest = q.toString();

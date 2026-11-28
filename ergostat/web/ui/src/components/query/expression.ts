@@ -16,6 +16,7 @@ export const FUNCTIONS: [string, string][] = [
   ["int", "int(x): a whole number from a number or its text (null if not)"], ["float", "float(x): a number (null if not)"],
   ["str", "str(x): as text"], ["json", "json(text): the JSON parsed (null if not JSON)"],
   ["lower", "lower(x): lower case"], ["upper", "upper(x): upper case"],
+  ["unexplained", "unexplained(): no projection takes the event (the Events query only)"],
 ];
 export const METHODS = ["startswith", "endswith", "lower", "upper", "strip", "split", "replace", "get"];
 const WORDS = ["and", "or", "not", "in", "if", "else", "true", "false", "null"];

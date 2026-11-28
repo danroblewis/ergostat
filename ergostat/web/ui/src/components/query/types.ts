@@ -10,6 +10,8 @@ export interface QueryEditorProps {
   problems?: { line?: number | null; message: string }[];
   /** an expression's: events the record holds (the query's sample), whose paths and values it completes */
   events?: { type?: unknown; item?: unknown; source?: unknown; data?: unknown }[];
+  /** Enter (with no completion open) says the text is done: a one-line box (the Events dashboard's query) */
+  onSubmit?: (text: string) => void;
 }
 
 /** The editor itself (CodeEditor.tsx, loaded lazily): also the SQL source's views and their columns, to complete. */
