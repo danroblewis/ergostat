@@ -462,6 +462,8 @@ def note_residuals(project, residuals: dict, now: float) -> list[dict]:
     import fcntl
     import json
     from pathlib import Path
+
+    from .goodmodel import ReadOnlyRecord
     d = getattr(project, "dir", None)
     if d is None:
         return []
@@ -494,6 +496,8 @@ def note_residuals(project, residuals: dict, now: float) -> list[dict]:
                 tmp.write_text(json.dumps(was))
                 tmp.replace(path)
     except OSError:
+        return out
+    except ReadOnlyRecord:                            # (a look on the last good model: recorded by the next look that may)
         return out
     return out
 
