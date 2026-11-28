@@ -181,6 +181,7 @@ def test_the_drafters_projection_passes_when_it_explains_them_and_waits_for_the_
     assert x["explains"] and x["projections_changed"] == ["deploy"]
     (r,) = [r for r in rq.stored(p).values() if r.get("source") == "events"]
     assert ux.sync(p)["proposed"] == 1                                         # its change cites it
+    assert "1 groups have a draft waiting for the owner" in dr.run(p, daily=1.0)["said"]   # not "no events wait"
     got = jd.run(p, "judge")
     x = pr.stored(p)[pid]
     assert x["state"] == "passed", (x["state"], got["verdicts"])
