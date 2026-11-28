@@ -1029,9 +1029,12 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
             since = min((e["time"] - (e["data"].get("seconds") or 0) for e in runs[-80:]), default=snap["at"]) - 60
             ended = {e["causedby"]: {k: e["data"].get(k) for k in ("how", "why")} for e in p.events.query(
                 n=None, type=ENDED, since=since, until=snap["at"]) if e.get("causedby") in began}
-            return {"agent": {**a.__dict__, "rung": a.rung}, **snap["agents"][name], "recent": runs[-80:], "asked": asked,
+            one_ = snap["agents"][name]
+            collector = dn and not (one_.get("every") or one_.get("cron") or one_.get("on") or one_.get("leased"))
+            return {"agent": {**a.__dict__, "rung": a.rung}, **one_, "recent": runs[-80:], "asked": asked,
                     "ended": ended,
                     **({"daemon": {"name": dn, **of_daemon(snap.get("daemons", {}), dn)}} if dn else {}),
+                    **({"collects": {"name": dn, **of_daemon(snap.get("daemons", {}), dn)}} if collector else {}),
                     "log": agent_spec.plain(p, _tail(log, 40)), "log_path": str(log),
                     "place": _agent_place(p, m.spec, b, snap["at"]) if b is not None else None,
                     "loads": [f.name for f in m.flows.values() if f.disturbance and f.agent == name],
@@ -1040,8 +1043,19 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
         from ..costs import record as costs
         use = costs.per_block(p, snap["at"] - snap["window"], snap["at"])
         span = min(snap["window"], snap["recorded"])     # the runs its interval asks for over the window's record
+        from ..daemons.supervise import of_daemon
+        blocks = getattr(getattr(m, "spec", None), "blocks", None) or {}
+
+        def collects(n: str, a: dict) -> dict:
+            """A block only its daemon runs (a collector: a daemon and no schedule, trigger or lease) has no runs; its
+            daemon's state and last line are what it did."""
+            b = blocks.get(n)
+            dn = b.params.get("daemon") if b is not None else None
+            if not dn or a.get("every") or a.get("cron") or a.get("on") or a.get("leased"):
+                return {}
+            return {"collects": {"name": dn, **of_daemon(snap.get("daemons", {}), dn)}}
         return {n: {**a, "hints": [h for h in snap["hints"] if h["agent"] == n], **({"use": use[n]} if n in use else {}),
-                    "expected": int(span // a["every"]) if a.get("every") else None, "span": span}
+                    "expected": int(span // a["every"]) if a.get("every") else None, "span": span, **collects(n, a)}
                 for n, a in snap["agents"].items()}
     if head == "daemons":                         # the long-lived runners (SPEC §9.7), as the engine last saw them
         return snap.get("daemons", {})

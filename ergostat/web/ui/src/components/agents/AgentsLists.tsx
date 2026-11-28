@@ -102,9 +102,9 @@ export function AgentsTable({ agents, caption = "Agents, by rung", mark, label }
                       </ul>
                     )}
                   </Table.Td>
-                  <Table.Td num>{String(a.runs ?? "")}</Table.Td>
+                  <Table.Td num>{a.collects ? "–" : String(a.runs ?? "")}</Table.Td>
                   <Table.Td className="nowrap muted">{lastText(a)}</Table.Td>
-                  <Table.Td className="muted">{a.schedule || a.every || (a.leased ? "on demand, per item (leased)" : a.runs_itself ? "on demand" : a.kind === "person" ? "by a person" : "not run here")}</Table.Td>
+                  <Table.Td className="muted">{a.collects ? "continuously (a daemon)" : a.schedule || a.every || (a.leased ? "on demand, per item (leased)" : a.runs_itself ? "on demand" : a.kind === "person" ? "by a person" : "not run here")}</Table.Td>
                   <Table.Td num className="nowrap" data-use="cost" title={u.cost ? `${u.cost}, over ${u.ai_runs} runs` : ""}>
                     {costText(u, a)}{u.cost && u.cost !== "reported" && <Muted> est.</Muted>}
                   </Table.Td>

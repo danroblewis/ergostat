@@ -7,12 +7,18 @@ export const rolesText = (roles: any[] | undefined): string =>
   (roles || []).map((r) => `${r.kind} ${r.name}` + (r.goal ? ` → goal ${r.goal}` : "")).join(", ");
 
 /** How it is set going: its schedule, per item by its lease, on demand, or not by ergostat. */
-export const engagedText = (a: any): string => a.schedule || (a.leased ? "started per item by its lease, not on a schedule"
+export const engagedText = (a: any): string => a.collects ? `continuously: its daemon ${a.collects.name} prints its events`
+  : a.schedule || (a.leased ? "started per item by its lease, not on a schedule"
   : a.runs_itself ? "on demand, not on a schedule" : "not run by ergostat");
 
 const sched = (a: any) => a.schedule || (a.every ? `every ${dur(a.every)}` : "");
 /** An agent that stands out: it last failed, never ran on its schedule, or ran under half the runs asked. [word, why] */
 export function exception(a: any): [string, string] | null {
+  if (a.collects) {                                 // a collector: no runs; its daemon is what it does
+    const d = a.collects;
+    if (!d.state || d.state === "running" || String(d.state).startsWith("running")) return null;
+    return [`daemon ${d.state}`, `its daemon ${d.name} is ${d.state}` + (d.why ? `: ${d.why}` : "") + ", so its events stop"];
+  }
   if (a.failing) return ["last run failed", `its last run, ${ago(a.last?.time)}, failed${a.last?.data?.note ? ": " + a.last.data.note : ""}`];
   if (!a.last && (a.runs_itself || a.every || a.cron)) {
     return ["never ran", `${sched(a) || "it runs itself"}, but no run of it is in the record` + (a.runs_itself ? "" : " (it is not run here: whatever runs it records nothing)")];
@@ -24,7 +30,9 @@ export function exception(a: any): [string, string] | null {
 }
 
 /** When it last ran, or why that is not asked. */
-export const lastText = (a: any): string => a.runs_itself
+export const lastText = (a: any): string => a.collects
+  ? (a.collects.last_line ? `last event line ${ago(a.collects.last_line)}` : `daemon ${a.collects.state || "not started"}, no line yet`)
+  : a.runs_itself
   ? (a.running_since ? `running for ${ago(a.running_since).replace(" ago", "")}` : a.last ? ago(a.last.time) : "never ran")
   : a.kind === "person" ? "a person" : "not run here";
 
