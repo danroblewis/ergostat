@@ -58,6 +58,19 @@ Use the terms in `NOTES.md` and no others for the same things: work, item, senso
 valve, disturbance, residual, agent, rung, retired, owner, Supervisor. Never "task", "worker" or
 "machine" for these.
 
+## The page
+
+- **Every page is a dashboard of panel kinds.** Anything shown on a page is a panel kind, usable on any dashboard,
+  placed on a default dashboard, editable in place. A new page is new panel kinds plus a default dashboard of them.
+  Never hand-build a page, a header or a page section outside the panel system (owner, 2026-11-28: said twice).
+  Brief every agent that touches the page with this rule.
+- **What the owner cares about is an object**: a projection folded from events, with a page, a history, and a query on
+  the Events page. Not a JSON file, a log line, an in-memory table, or a view stitched from several stores; not one
+  thing split across several projections the owner must cross-reference.
+- **"For you" is decisions** the owner answers on the page (the Inbox). Faults, status and "not measurable yet" are
+  kept apart, and something that is not broken is never shown as failing. A goal that stays off says where its loop
+  is stuck.
+
 ## Working here
 
 - Python 3.12+, `uv`, the standard library only at runtime; the unit suite before every commit. Lint and style are
