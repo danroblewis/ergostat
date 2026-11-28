@@ -17,8 +17,8 @@ def test_a_refusal_and_its_fix_are_events_and_the_same_errors_again_are_not(proj
     worse = bad + ["ergostat.yaml:9: goal y: no such stock"]
     assert rl.noted(p, worse, "v1")["data"]["errors"] == worse          # other errors: recorded
     took = rl.noted(p, None)
-    assert took["type"] == rl.TAKEN and took["data"]["errors"] == worse and took["data"]["was_running"] == "v1"
+    assert took["type"] == rl.MODEL_TAKEN and took["data"]["errors"] == worse and took["data"]["was_running"] == "v1"
     assert took["data"]["refused_since"] and rl.read_state(p.dir) is None
     assert rl.noted(p, None) is None
     assert [x["type"] for x in p.events.query(n=None, type="model.refused,model.taken")] == \
-        [rl.REFUSED, rl.REFUSED, rl.TAKEN]
+        [rl.REFUSED, rl.REFUSED, rl.MODEL_TAKEN]
