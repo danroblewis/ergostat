@@ -41,14 +41,16 @@ PATHS.update({"projections": "items-overview", "items-by-projection": "items", "
               "item-list": "items", "item-why": "why", "item-summary": "items/{item}",
               "item-path": "items/{item}", "item-relations": "items/{item}", "item-fields": "items/{item}",
               "item-refused": "items/{item}", "item-moves": "items/{item}", "item-events": "items/{item}",
-              "item-changes": "items/{item}"})   # items
+              "item-changes": "items/{item}", "item-state-timeline": "items/{item}", "item-field-chart": "items/{item}",
+              "item-events-histogram": "items/{item}"})   # items
 PATHS.update({"events": "events", "goal-crossings": "loops/{goal}", "goal-decisions": "loops/{goal}"})   # record
 PATHS.update({"attention": "status", "feedback-loops": "graph", "control-loops": "graph", "quiet-systems": "systems",
               "goal-runbook": "loops/{goal}", "goal-parts": "loops/{goal}", "goal-control": "loop-control"})   # attention
 # a kind whose endpoint is asked with words of its own, besides its parameters (KIND → query)
 # a kind whose system: is worked out here (its endpoint takes none): its rows those the system contains
 SCOPED_HERE = ("goals", "agents", "ladder", "chart", "projections", "attention")
-FIXED = {"feedback-loops": {"view": ["dynamics"]}, "control-loops": {"view": ["blocks"]}}
+FIXED = {"feedback-loops": {"view": ["dynamics"]}, "control-loops": {"view": ["blocks"]},
+         "item-field-chart": {"history": ["all"]}}     # (its fields' changes: what it charts)
 
 
 def default(spec) -> Dashboard:

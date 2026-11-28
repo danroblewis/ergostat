@@ -48,3 +48,18 @@ button.jv-val:hover, button.jv-val.on { border-color: var(--accent); background:
 .bars-bar { width: 40%; }
 .bars-bar span { display: block; height: 0.8em; background: var(--accent-2); border-radius: var(--radius); min-width: var(--hair); }
 .bars caption { caption-side: bottom; text-align: left; }
+
+/* one item's history as charts (components/charts/ItemCharts.tsx): its states as a band, its numbers, its events */
+.item-timeline-band { position: relative; height: 1.4rem; background: var(--fill); border-radius: var(--radius); overflow: hidden; }
+.item-timeline-span { position: absolute; top: 0; bottom: 0; }
+.item-timeline-axis { display: flex; justify-content: space-between; gap: var(--sp-2); margin: var(--sp-0) 0 var(--sp-2); }
+.item-timeline-spent { border-collapse: collapse; font-size: var(--text-sm); }
+.item-timeline-spent th { text-align: left; font-weight: normal; padding: 0 var(--sp-3) 0 0; }
+.item-timeline-spent td { padding: 0 var(--sp-2); }
+.item-swatch { display: inline-block; width: 0.7em; height: 0.7em; border-radius: var(--radius); margin-right: var(--sp-1); }
+.item-field-charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: var(--sp-3); }
+.item-field-chart { margin: 0; min-width: 0; }
+.item-field-chart figcaption { font-size: var(--text-sm); margin-bottom: var(--sp-1); }
+.item-histogram svg { display: block; width: 100%; height: 7.5rem; background: var(--fill); border-radius: var(--radius); }
+.item-histogram-kinds { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3);
+  font-size: var(--text-sm); }

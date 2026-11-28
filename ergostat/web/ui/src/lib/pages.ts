@@ -45,6 +45,9 @@ export const AGENT_PANELS: PanelDef[] = [
 export const ITEM_PANELS: PanelDef[] = [
   { panel: "item-why", id: "why", quiet: true },
   { panel: "item-summary", id: "summary" },
+  { panel: "item-state-timeline", id: "state-timeline", quiet: true },
+  { panel: "item-field-chart", id: "numbers", quiet: true },
+  { panel: "item-events-histogram", id: "events-over-time", quiet: true },
   { panel: "item-path", id: "path", quiet: true },
   { panel: "item-relations", id: "relations", quiet: true },
   { panel: "item-fields", id: "fields" },

@@ -3,6 +3,9 @@ import { ancillaryMark, scopedBy } from "../../../lib/scoped";
 import { useDashboards } from "../../../state/dashboards";
 import { useTime } from "../../../state/time";
 import { ProjectionStates } from "../../charts/ProjectionStates";
+import {
+  eventBuckets, EventsHistogram, FieldCharts, numericCandidates, numericSeries, StateTimeline, stateSpans,
+} from "../../charts/ItemCharts";
 import { PanelFrame } from "../../charts/PanelView";
 import { FinishedNote, Pager } from "../../controls";
 import {
@@ -214,6 +217,48 @@ function ItemChangesFrame({ def, every, refreshKey, tools }: FrameProps) {
   );
 }
 
+/** The projection a further ask of the item names: the panel's, else the one its answer is of (an open projection's
+ *  item is found by its projection alone). */
+const ofItem = (def: PanelDef, d: any) => {
+  const projection = def.projection || d?.projection;
+  return projection ? { projection } : {};
+};
+
+/** Its states over time, a band; from its moves (else its `state` field's changes, asked for). */
+function ItemStateTimelineFrame({ def, every, refreshKey, tools }: FrameProps) {
+  const { at } = useTime();
+  const now = at ?? Date.now() / 1000;
+  const got = useItem(def, every, refreshKey);
+  const byField = !!got.data && !(got.data.moves || []).length && (got.data.changes?.state || 0) > 0;
+  const hist = usePanelAnswer<any>(byField ? pathOf("items", def.item) : null,
+    { ...ofItem(def, got.data), history: "state" }, every, refreshKey);
+  const d = byField ? hist.data : got.data;
+  const state = byField ? { data: hist.data, error: hist.error ?? got.error } : got;
+  return (
+    <ItemPart def={def} title="Its states over time" tools={tools} got={state} nothing={(x) => !stateSpans(x, now).length}>
+      {() => (stateSpans(d, now).length ? <StateTimeline d={d} now={now} /> : <p className="muted">It has no states over time.</p>)}
+    </ItemPart>
+  );
+}
+
+/** Its numeric fields over time: `field`'s, else each declared numeric (or a number) that changed at least twice. */
+function ItemFieldChartFrame({ def, every, refreshKey, tools }: FrameProps) {
+  const got = useItem(def, every, refreshKey);
+  const field = typeof def.field === "string" && def.field.trim() ? def.field.trim() : undefined;
+  const fields = numericCandidates(got.data, field);
+  const hist = usePanelAnswer<any>(fields.length ? pathOf("items", def.item) : null,
+    { ...ofItem(def, got.data), history: field || "all" }, every, refreshKey);
+  const series = hist.data ? numericSeries(hist.data, fields) : [];
+  const state = !got.data || !fields.length ? got : { data: hist.data, error: hist.error };
+  return (
+    <ItemPart def={def} title={field ? `${field} over time` : "Its numbers over time"} tools={tools} got={state}
+      nothing={() => !series.length}>
+      {() => (series.length ? <FieldCharts series={series} />
+        : <p className="muted">{field ? `${field} has not changed to two numbers.` : "No numeric field has changed twice."}</p>)}
+    </ItemPart>
+  );
+}
+
 const ItemSummaryFrame = part("Summary", (d) => <ItemSummary d={d} />);
 const ItemPathFrame = part("Where it went", (d) => <ItemPath d={d} />, (d) => !hasPath(d) && !d.eta?.why);
 const ItemRelationsFrame = part("Relations", (d) => <ItemRelations d={d} />, (d) => !hasRelations(d));
@@ -222,6 +267,9 @@ const ItemFieldsFrame = part("Fields", (d, def) => (
 const ItemRefusedFrame = part("Refused", (d) => <ItemRefused d={d} />, (d) => !d.refused?.length);
 const ItemMovesFrame = part("How it moved", (d) => <ItemMoves d={d} />);
 const ItemEventsFrame = part("Events", (d) => <ItemEvents d={d} />, undefined, (d) => `${d.events} on the record`);
+const ItemEventsHistogramFrame = part("Its events over time",
+  (d) => (eventBuckets(d) ? <EventsHistogram b={eventBuckets(d)} /> : <p className="muted">No events.</p>),
+  (d) => !eventBuckets(d), (d) => (d.record?.length < d.record_total ? `the latest ${d.record.length} of ${d.record_total}` : ""));
 
 export const ITEMS: Record<string, PanelKind> = {
   projections: { label: "Projections, by system", Frame: ProjectionsFrame },
@@ -239,4 +287,7 @@ export const ITEMS: Record<string, PanelKind> = {
   "item-moves": { label: "An item: how it moved", needs: "item", Frame: ItemMovesFrame },
   "item-events": { label: "An item: its events", needs: "item", Frame: ItemEventsFrame },
   "item-changes": { label: "An item: each field's changes", needs: "item", Frame: ItemChangesFrame },
+  "item-state-timeline": { label: "An item: its states over time", needs: "item", Frame: ItemStateTimelineFrame },
+  "item-field-chart": { label: "An item: its numeric fields over time", needs: "item", Frame: ItemFieldChartFrame },
+  "item-events-histogram": { label: "An item: its events over time, by kind", needs: "item", Frame: ItemEventsHistogramFrame },
 };

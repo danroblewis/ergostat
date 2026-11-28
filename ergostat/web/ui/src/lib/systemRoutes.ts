@@ -10,7 +10,7 @@ export type Scope = { within: string | null; name: string; path: string; segment
   goals: Record<string, string>; agents: Record<string, string> };
 /** `in`: the scopes that contain it; `at`: those where it holds its name, and that name (a remote's or a template's
  *  part is named by its short name inside its own system). */
-export type Thing = { defined_in: string | null; in: string[]; at: Record<string, string>; id?: string };
+export type Thing = { defined_in: string | null; in: string[]; at: Record<string, string>; id?: string; open?: boolean };
 export type RouteTable = {
   reserved: string[];
   defaults: string[];
@@ -98,6 +98,9 @@ function prefixOf(glob: string): string | null {
   return /[*?[]/.test(p) ? null : p;
 }
 
+/** What a projection's items' ids start with, left out of their addresses: none of an open one's (routes.py _prefix_of). */
+const prefixOfThing = (thing: Thing): string | null => (thing.open ? "" : prefixOf(thing.id!));
+
 function at(t: RouteTable, s: string, rest = ""): string {
   const base = t.scopes[s].path.replace(/\/$/, "");
   return rest ? `${base}/${rest}` : base || "/";
@@ -111,7 +114,7 @@ function addr(t: RouteTable, kind: string, name: string, s: string, id?: string)
   const seg = table(t, kind)[name].at[s] ?? name;
   if (kind === "projection") return at(t, s, enc(seg));
   if (kind === "item") {
-    const p = prefixOf(t.projections[name].id);
+    const p = prefixOfThing(t.projections[name]);
     const rest = p !== null && id!.startsWith(p) ? id!.slice(p.length) : id!;
     return at(t, s, `${enc(seg)}/${segs(rest)}`);
   }
@@ -131,7 +134,7 @@ function thingAt(t: RouteTable, s: string, kind: "projection" | "item" | "goal" 
   if (!thing || !(s in thing.at)) return null;
   const out: Resolved = { scope: s, kind, name };
   if (kind === "item") {
-    const p = prefixOf(thing.id!);
+    const p = prefixOfThing(thing);
     out.id = p !== null ? p + rest : rest;
   }
   const up = top(t, thing, s);

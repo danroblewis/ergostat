@@ -19,7 +19,7 @@ PARAMS = {
     "fit": FLAG, "quiet": FLAG, "address": {"type": "string", "pattern": "^/diagram"},
     "agent": {"anyOf": [{"$ref": "#/$defs/name"}, {"const": "$agent"}]},     # $agent: the page's address's (page: agent)
     "columns": {"oneOf": [{"enum": list(d.GOAL_COLUMNS)}, {"type": "array", "minItems": 1, "items": {"enum": list(d.GOAL_COLUMNS)}}]},
-    "item": TEXT, "q": TEXT, "sort": TEXT, "history": TEXT, "match": TEXT, "about": {"$ref": "#/$defs/name"},
+    "item": TEXT, "q": TEXT, "sort": TEXT, "history": TEXT, "field": TEXT, "match": TEXT, "about": {"$ref": "#/$defs/name"},
     "machine": TEXT, "remote": TEXT, "runs": FLAG, "window": FLAG,
     "from": {"type": "number", "minimum": 0}, "to": {"type": "number", "minimum": 0},
     "finished": {"enum": ["hide", "waits", "show"]}, "states": {"enum": ["all", "groups"]},

@@ -105,6 +105,7 @@ def table(spec) -> dict:
     for name, thing in out["projections"].items():
         k = spec.items.get(name)
         thing["id"] = k.id if k is not None else f"{name}/*"
+        thing["open"] = bool(k is not None and k.open)      # its items not told by its id glob: their ids whole
 
     dashboards: dict[str, list] = {s: [] for s in sc}
     for full, d in (spec.dashboards.items() if spec is not None else ()):
@@ -328,6 +329,12 @@ def _prefix(glob: str) -> str | None:
     return None if re.search(r"[*?\[]", p) else p
 
 
+def _prefix_of(thing: dict) -> str | None:
+    """What a projection's items' ids start with, left out of their addresses: none of an open one's (keyed by its
+    events' data, or read by a query: its items' ids are whole, /instance/ACCOUNT/REGION/ID)."""
+    return "" if thing.get("open") else _prefix(thing["id"])
+
+
 def _at(t: dict, s: str, rest: str = "") -> str:
     base = t["scopes"][s]["path"].rstrip("/")
     return (base + "/" + rest) if rest else (base or "/")
@@ -338,7 +345,7 @@ def _addr(t: dict, kind: str, name: str, s: str, id_: str | None = None) -> str:
     if kind == "projection":
         return _at(t, s, _enc(seg))
     if kind == "item":
-        p = _prefix(t["projections"][name]["id"])
+        p = _prefix_of(t["projections"][name])
         rest = id_[len(p):] if p is not None and id_.startswith(p) else id_
         return _at(t, s, f"{_enc(seg)}/{_segs(rest)}")
     return _at(t, s, f"{'goals' if kind == 'goal' else 'agents'}/{_enc(seg)}")
@@ -386,7 +393,7 @@ def _thing(t: dict, s: str, kind: str, name: str, rest: str | None = None) -> di
         return None
     out: dict = {"scope": s, "kind": kind, "name": name}
     if kind == "item":
-        p = _prefix(thing["id"])
+        p = _prefix_of(thing)
         out["id"] = p + rest if p is not None else rest
     top = _top(t, thing, s)
     if top is not None and top != s:

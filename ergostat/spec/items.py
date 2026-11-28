@@ -896,7 +896,22 @@ def detail(events, spec, id: str, until: float | None = None, history: int | Non
                         "fold": k.fold, **k.definition()} if k else None,
             "transcript_events": len(evs) - len(own),
             "relations": related(events, spec, it, k),
-            "record": own[-500:]}
+            "record": _kinds_named(k, own[-500:])}
+
+
+def _kinds_named(k, evs: list[dict]) -> list[dict]:
+    """Its events, each named by the projection's kind of event that takes it (``kind``; none: the remainder), when
+    the projection declares its kinds (``events:``): what the item's events histogram stacks them by."""
+    if k is None or k.handlers is None:
+        return evs
+    out = []
+    for e in evs:
+        try:
+            ek = k.kind_of(e)
+        except Exception:                    # an expression that fails on one event: that event unnamed, not the page
+            ek = None
+        out.append({**e, "kind": ek.name} if ek is not None else e)
+    return out
 
 
 def related(events, spec, it: Item, k) -> dict | None:

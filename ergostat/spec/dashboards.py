@@ -75,10 +75,15 @@ KINDS.update({
     "item-list": {"projection", "state", "q", "sort", "finished", "n"},   # GET /api/items: one projection's, paged
     **{k: _ITEM for k in _ONE_ITEM},                      # GET /api/items/ITEM (item-why: GET /api/why?item=ITEM)
     "item-changes": _ITEM | {"history"},                  # GET /api/items/ITEM?history=FIELD|all: each field's changes
+    "item-state-timeline": _ITEM,                         # GET /api/items/ITEM: its states over time, a band
+    "item-field-chart": _ITEM | {"field"},                # GET /api/items/ITEM?history=all: a numeric field's values
+    #                                                       over time (field: that one; else each that changed twice)
+    "item-events-histogram": _ITEM,                       # GET /api/items/ITEM: its events per time bucket, by kind
 })
 NEEDS_ITEMS: dict[str, str] = {"projection-now": "projection", "projection-model": "projection",
                                "projection-definition": "projection", "item-list": "projection",
-                               **{k: "item" for k in _ONE_ITEM}}
+                               **{k: "item" for k in _ONE_ITEM}, "item-state-timeline": "item",
+                               "item-field-chart": "item", "item-events-histogram": "item"}
 
 
 def _one_of(*words):
@@ -105,6 +110,9 @@ CHECKS_ITEMS = {
     "item-list": {"state": _text, "q": _text, "sort": _text, "finished": _one_of("hide", "waits", "show")},
     **{k: {"item": _text} for k in _ONE_ITEM},
     "item-changes": {"item": _text, "history": _text},
+    "item-state-timeline": {"item": _text},
+    "item-field-chart": {"item": _text, "field": _text},
+    "item-events-histogram": {"item": _text},
 }
 
 # ---- the record group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/record.tsx): KIND → its parameters
