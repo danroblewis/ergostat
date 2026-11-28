@@ -102,7 +102,8 @@ def q(tmp_path):
     from ergostat.store import Project
     from tests.test_query_engine import MODEL
     (tmp_path / "ergostat.yaml").write_text(textwrap.dedent(MODEL).replace(
-        "      ticket.done:\n", "      ticket.reopened:\n        state: set('open')\n      ticket.done:\n"))
+        "      ticket-done:\n", "      ticket-reopened:\n        when: type == 'ticket.reopened'\n        state: set('open')\n"
+        "      ticket-done:\n"))
     got = Project(mdl.load(tmp_path))
     _reentering(got)
     return got

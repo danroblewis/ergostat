@@ -63,13 +63,15 @@ PLACES = ("where", "defined", "value_at", "description")     # where a thing is 
 
 def _plain(x, depth: int = 0):
     """What a part of the spec is, as plain data: a dataclass by its fields (leaving out where it is written and its
-    description, so an edit elsewhere in the file never changes it), containers by their items, the rest as text."""
+    description, so an edit elsewhere in the file never changes it, and any field kept out of its equality, a cache that
+    fills as events are read), containers by their items, the rest as text."""
     if depth > 12:
         return None
     if dataclasses.is_dataclass(x) and not isinstance(x, type):
         if type(x).__name__ == "Where":
             return None
         return {f.name: _plain(getattr(x, f.name), depth + 1) for f in dataclasses.fields(x) if f.name not in PLACES
+                and f.compare                                  # (a cache, as a projection's memo: not what it is)
                 and not ("unset" in f.metadata and getattr(x, f.name) == f.metadata["unset"])}   # a newer key, unused
     if isinstance(x, dict):
         return {str(k): _plain(v, depth + 1) for k, v in sorted(x.items(), key=lambda kv: str(kv[0]))}

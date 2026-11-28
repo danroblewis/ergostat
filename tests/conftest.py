@@ -149,7 +149,9 @@ def broken_by_redesign(path: Path = BROKEN) -> list[str]:
 def _broken_by_redesign(items):
     """Each test listed in tests/broken_by_redesign.txt skipped (the owner, 2026-11-26: the redesign breaks them; left
     broken for now); a listed file (no ``::``), every test in it. A listed id that names no test is ignored here;
-    tests/test_broken_by_redesign.py fails on it."""
+    tests/test_broken_by_redesign.py fails on it. ERGOSTAT_RUN_BROKEN=1 runs them all, to find the ones mended."""
+    if os.environ.get("ERGOSTAT_RUN_BROKEN"):
+        return
     listed = set(broken_by_redesign())
     for it in items:
         if it.nodeid in listed or it.nodeid.split("::", 1)[0] in listed:
@@ -160,7 +162,8 @@ def _broken_by_redesign(items):
 def pytest_make_collect_report(collector):
     """A listed file that does not even import (it loads a broken model at module level) is skipped, not an error."""
     report = yield
-    if report.failed and isinstance(collector, pytest.Module) and collector.nodeid in set(broken_by_redesign()):
+    if (report.failed and isinstance(collector, pytest.Module) and not os.environ.get("ERGOSTAT_RUN_BROKEN")
+            and collector.nodeid in set(broken_by_redesign())):
         report.outcome = "skipped"
         report.longrepr = (str(collector.path), 0, f"Skipped: {BROKEN_REASON}")
         report.result = []

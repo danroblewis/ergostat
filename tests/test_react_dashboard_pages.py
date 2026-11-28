@@ -190,7 +190,7 @@ def test_an_item_s_page_is_saved_as_its_projection_s_show_dashboard(browser, pla
         pg.wait_for_function(f"() => document.querySelectorAll('.panel.panel-kind-{t}').length < {n}", timeout=WAIT)
     _saved(pg)
     show = p.model.path.read_text().split("  ticket:\n")[1]
-    assert "      show:\n" in show and '"item": "$item"' in show and "item-events" not in show
+    assert "      show:\n" in show and '"item": "$item"' in show and '"item-events"' not in show   # (item-events-histogram stays)
     pg.close()
     pg = opened(browser, url + "/ticket/2")                              # every ticket's page: drawn so
     assert heading(pg).startswith("ticket/2")                           # (then its buttons)

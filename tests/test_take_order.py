@@ -140,7 +140,8 @@ def test_a_block_switched_off_is_projected_not_to_take(tmp_path):
 
 PAUSED = MODEL.replace("messages:\n  done: {ticket: [done]}", """messages:
   done: {ticket: [done]}
-  paused: {ticket: [held]}""").replace("states: [todo, fix, doing, done]", "states: [todo, fix, doing, held, done]").replace(
-    "        state: set('done')\n", "        state: set('done')\n      ticket.held:\n        state: set('held')\n")
+  paused: {ticket: [held]}""").replace("values: [todo, fix, doing, done]", "values: [todo, fix, doing, held, done]").replace(
+    "        state: set('done')\n", "        state: set('done')\n      ticket-held:\n        when: type == 'ticket.held'\n"
+    "        state: set('held')\n")
 
 

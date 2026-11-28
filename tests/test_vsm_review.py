@@ -27,7 +27,7 @@ name: plant
 purpose: keep the plant's work moving
 projections:
   job:
-    fields: {{state: [new, done]}}
+    fields: {{state: {{values: [new, done]}}}}
     events:
       end: {{when: "type == 'job.end'", '...': data, state: "'done'"}}
       other: {{when: true, '...': data}}

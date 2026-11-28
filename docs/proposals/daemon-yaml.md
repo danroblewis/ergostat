@@ -85,15 +85,19 @@ then today's `daemon:` map, renamed, with `run` outside it. The pair is the docs
 name: shell-jobs
 projections:
   job:
-    match:
-      key: job/*
-    states: [ready, done]
+    query: key.startswith('job/')
+    fields:
+      state: {values: [ready, done]}
     events:
-      job.opened:
+      job-opened:
+        when: type == 'job.opened'
         state: set('ready')
-      job.done:
+      job-done:
+        when: type == 'job.done'
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   ready:
     unit: jobs
@@ -115,15 +119,19 @@ blocks:
 name: shell-jobs
 projections:
   job:
-    match:
-      key: job/*
-    states: [ready, done]
+    query: key.startswith('job/')
+    fields:
+      state: {values: [ready, done]}
     events:
-      job.opened:
+      job-opened:
+        when: type == 'job.opened'
         state: set('ready')
-      job.done:
+      job-done:
+        when: type == 'job.done'
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   ready:
     unit: jobs
@@ -576,15 +584,19 @@ runs at most 10 at once where it said `pool: 20`.
 name: builder
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [ready, done]
+    query: key.startswith('ticket/')
+    fields:
+      state: {values: [ready, done]}
     events:
-      ticket.opened:
+      ticket-opened:
+        when: type == 'ticket.opened'
         state: set('ready')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 blocks:
   builder:
     type: program
@@ -598,15 +610,19 @@ blocks:
 name: builder
 projections:
   ticket:
-    match:
-      key: ticket/*
-    states: [ready, done]
+    query: key.startswith('ticket/')
+    fields:
+      state: {values: [ready, done]}
     events:
-      ticket.opened:
+      ticket-opened:
+        when: type == 'ticket.opened'
         state: set('ready')
-      ticket.done:
+      ticket-done:
+        when: type == 'ticket.done'
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 blocks:
   builder:
     type: program
@@ -709,15 +725,19 @@ be the default. Today the same text means no heartbeat at all (`config.py:53`, `
 name: t-block
 projections:
   job:
-    match:
-      key: job/*
-    states: [ready, done]
+    query: key.startswith('job/')
+    fields:
+      state: {values: [ready, done]}
     events:
-      job.opened:
+      job-opened:
+        when: type == 'job.opened'
         state: set('ready')
-      job.done:
+      job-done:
+        when: type == 'job.done'
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   ready:
     unit: jobs
@@ -740,15 +760,19 @@ blocks:
 name: t-block
 projections:
   job:
-    match:
-      key: job/*
-    states: [ready, done]
+    query: key.startswith('job/')
+    fields:
+      state: {values: [ready, done]}
     events:
-      job.opened:
+      job-opened:
+        when: type == 'job.opened'
         state: set('ready')
-      job.done:
+      job-done:
+        when: type == 'job.done'
         state: set('done')
-    otherwise: rest
+      other:
+        when: true
+        '...': data
 stocks:
   ready:
     unit: jobs

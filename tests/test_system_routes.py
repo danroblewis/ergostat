@@ -101,6 +101,19 @@ def test_the_route_table_is_served(tmp_path):
     assert json.loads(json.dumps(got)) == got
 
 
+def test_a_keyed_projections_items_are_at_their_key_and_keep_their_ids(tmp_path):
+    """A projection keyed by its events' data (``key: [account, region, instance_id]``) is open: its items' ids are
+    the key's parts joined (``acct-1/us-east-1/i-0abc``), whole, so the address is /PROJECTION/ACCOUNT/REGION/ID and
+    reads back the id unchanged; a glob query's items keep their prefix out of the address, as the implied id's do."""
+    t, _ = table_of(tmp_path, "keyed")
+    assert t["projections"]["instance"]["open"] and not t["projections"]["ticket"]["open"]
+    item = {"kind": "item", "id": "acct-1/us-east-1/i-0abc", "projection": "instance"}
+    assert href(t, item) == "/cloud/instance/acct-1/us-east-1/i-0abc"
+    assert resolve(t, "/cloud/instance/acct-1/us-east-1/i-0abc")["id"] == "acct-1/us-east-1/i-0abc"
+    assert href(t, {"kind": "item", "id": "ticket/4"}) == "/ticket/4"
+    assert resolve(t, "/ticket/4")["id"] == "ticket/4"
+
+
 NODE = shutil.which("node")
 
 

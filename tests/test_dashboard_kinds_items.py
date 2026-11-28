@@ -131,4 +131,6 @@ def test_the_dashboard_answers_each_panel_as_its_own_endpoint(tmp_path, monkeypa
             path = path.replace("{" + k + "}", params.pop(k).replace("/", "%2F"))
         alone = server.api(live, path, {"since": [str(past["window"])], "at": [str(at)],
                                         **dashboard_api.FIXED.get(decl["panel"], {}), **query(params)})
+        if decl["panel"] in ("projection-model", "projection-definition"):   # asked alone it also carries its body as
+            assert isinstance(alone.pop("yaml"), str) and "yaml" not in x["answer"]   # written, for the editor
         assert alone == x["answer"], decl["panel"]

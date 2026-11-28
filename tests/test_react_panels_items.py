@@ -45,11 +45,12 @@ dashboards:
 """
 COUNTED = {"stocks:\n": "stocks:\n  open-tickets:\n    sensor: {projection: ticket, state: [opened, working]}\n",
            "goals:\n": "goals:\n  few-tickets: {stock: open-tickets, hold: \"< 10\"}\n",   # a stock that counts tickets
-           "    states: [opened, working, done]\n": "    states: [opened, working, done]\n    show: [title]\n"}
+           "        values: [opened, working, done]\n": "        values: [opened, working, done]\n    show: [title]\n"}
 
 
 def counted(text: str) -> str:
     for old, new in COUNTED.items():
+        assert old in text, old                      # (the projection's text changed: say so, not a missing column)
         text = text.replace(old, new, 1)
     return text
 

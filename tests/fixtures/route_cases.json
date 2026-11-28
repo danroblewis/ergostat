@@ -4,7 +4,7 @@
   {
    "name": "factory",
    "files": {
-    "ergostat.yaml": "name: routes\ninclude: [factory.yaml, intake.yaml]\nsystems:\n  factory: {description: makes things}\n  intake: {within: factory, description: takes work in}\n  qa: {within: factory, description: checks the work}\n  delivery: {within: factory, description: ships it}\nprojections:\n  ticket: {states: [new, shipped], system: intake}\n  note: {states: [open], system: qa}\n  report: {match: {key: report/*}, states: [sent], system: delivery}\n  run: {match: {key: run/*}, states: [going]}\nstocks:\n  arrived: {system: intake, unit: tickets, sensor: {projection: ticket, state: new}}\n  shipped: {system: delivery, unit: tickets, sensor: {projection: ticket, state: shipped}}\n  notes-open: {system: qa, unit: notes, sensor: {projection: note, state: open}}\n  reports-sent: {unit: reports, sensor: {projection: report, state: sent}}\n  runs: {unit: runs, sensor: {projection: run, state: going}}\nflows:\n  take-in: {system: intake, to: arrived}\ngoals:\n  full: {system: intake, stock: arrived, hold: \"<= 50\"}\nblocks:\n  gate: {system: intake, type: program, run: echo 1, in: goal.full, out: flow.take-in, agent: ops}\nagents:\n  ops: {kind: program}\ndashboards:\n  weekly:\n    panels:\n      - {panel: chart, refs: stock.runs}\n",
+    "ergostat.yaml": "name: routes\ninclude: [factory.yaml, intake.yaml]\nsystems:\n  factory: {description: makes things}\n  intake: {within: factory, description: takes work in}\n  qa: {within: factory, description: checks the work}\n  delivery: {within: factory, description: ships it}\nprojections:\n  ticket: {fields: {state: {values: [new, shipped]}}, system: intake}\n  note: {fields: {state: {values: [open]}}, system: qa}\n  report: {query: \"glob(key, 'report/*')\", fields: {state: {values: [sent]}}, system: delivery}\n  run: {query: \"glob(key, 'run/*')\", fields: {state: {values: [going]}}}\nstocks:\n  arrived: {system: intake, unit: tickets, sensor: {projection: ticket, state: new}}\n  shipped: {system: delivery, unit: tickets, sensor: {projection: ticket, state: shipped}}\n  notes-open: {system: qa, unit: notes, sensor: {projection: note, state: open}}\n  reports-sent: {unit: reports, sensor: {projection: report, state: sent}}\n  runs: {unit: runs, sensor: {projection: run, state: going}}\nflows:\n  take-in: {system: intake, to: arrived}\ngoals:\n  full: {system: intake, stock: arrived, hold: \"<= 50\"}\nblocks:\n  gate: {system: intake, type: program, run: echo 1, in: goal.full, out: flow.take-in, agent: ops}\nagents:\n  ops: {kind: program}\ndashboards:\n  weekly:\n    panels:\n      - {panel: chart, refs: stock.runs}\n",
     "factory.yaml": "defaults:\n  system: factory\ndashboards:\n  board:\n    panels:\n      - {panel: chart, refs: stock.shipped}\n  overview:\n    panels:\n      - {panel: chart, refs: stock.arrived}\n",
     "intake.yaml": "defaults:\n  system: intake\ndashboards:\n  ticket:\n    panels:\n      - {panel: chart, refs: stock.arrived}\n"
    },
@@ -474,7 +474,7 @@
   {
    "name": "order",
    "files": {
-    "ergostat.yaml": "name: order\ninclude: [factory.yaml]\nsystems:\n  factory: {description: makes things}\n  intake: {within: factory, description: takes work in}\n  ticket: {within: factory, description: a subsystem named as a projection}\n  work: {within: factory, description: named as a top-level projection}\nprojections:\n  ticket: {states: [new], system: intake}\n  work: {match: {key: work/*}, states: [a]}\nstocks:\n  arrived: {system: intake, unit: tickets, sensor: {projection: ticket, state: new}}\n  seen: {unit: tickets, sensor: {projection: ticket, state: new}}\n  doing: {unit: things, sensor: {projection: work, state: a}}\n  held: {system: work, unit: things, sensor: {manual: true}}\nflows:\n  pull: {system: intake, from: doing, to: arrived}\n",
+    "ergostat.yaml": "name: order\ninclude: [factory.yaml]\nsystems:\n  factory: {description: makes things}\n  intake: {within: factory, description: takes work in}\n  ticket: {within: factory, description: a subsystem named as a projection}\n  work: {within: factory, description: named as a top-level projection}\nprojections:\n  ticket: {fields: {state: {values: [new]}}, system: intake}\n  work: {query: \"glob(key, 'work/*')\", fields: {state: {values: [a]}}}\nstocks:\n  arrived: {system: intake, unit: tickets, sensor: {projection: ticket, state: new}}\n  seen: {unit: tickets, sensor: {projection: ticket, state: new}}\n  doing: {unit: things, sensor: {projection: work, state: a}}\n  held: {system: work, unit: things, sensor: {manual: true}}\nflows:\n  pull: {system: intake, from: doing, to: arrived}\n",
     "factory.yaml": "defaults:\n  system: factory\ndashboards:\n  intake-board:\n    panels:\n      - {panel: chart, refs: stock.arrived}\n"
    },
    "resolve": [
@@ -691,7 +691,7 @@
   {
    "name": "unreachable",
    "files": {
-    "ergostat.yaml": "name: unreachable\ninclude: [factory.yaml]\nsystems:\n  factory: {}\n  review: {within: factory}\n  goals: {within: factory}\n  api: {}\nprojections:\n  events: {match: {key: ev/*}, states: [a]}\n  static: {match: {key: st/*}, states: [a]}\nstocks:\n  seen: {unit: events, sensor: {projection: events, state: a}}\n  waiting: {system: review, unit: things, sensor: {manual: true}}\n",
+    "ergostat.yaml": "name: unreachable\ninclude: [factory.yaml]\nsystems:\n  factory: {}\n  review: {within: factory}\n  goals: {within: factory}\n  api: {}\nprojections:\n  events: {query: \"glob(key, 'ev/*')\", fields: {state: {values: [a]}}}\n  static: {query: \"glob(key, 'st/*')\", fields: {state: {values: [a]}}}\nstocks:\n  seen: {unit: events, sensor: {projection: events, state: a}}\n  waiting: {system: review, unit: things, sensor: {manual: true}}\n",
     "factory.yaml": "defaults:\n  system: factory\ndashboards:\n  review:\n    panels:\n      - {panel: chart, refs: stock.waiting}\n"
    },
    "resolve": [
@@ -761,6 +761,64 @@
      "static"
     ]
    ]
+  },
+  {
+   "name": "keyed",
+   "files": {
+    "ergostat.yaml": "name: keyed\nsystems:\n  cloud: {description: runs instances}\nprojections:\n  instance:\n    system: cloud\n    query: data.source == 'ec2'\n    key: [account, region, instance_id]\n    fields:\n      account: text\n      region: text\n      instance_id: text\n      state: {values: [running, stopped]}\n    events:\n      change:\n        when: \"true\"\n        account: data.account\n        region: data.region\n        instance_id: data.id\n        state: data.state\n  ticket: {query: \"glob(key, 'ticket/*')\", fields: {state: {values: [new, done]}}}\n"
+   },
+   "resolve": [
+    [
+     "/cloud/instance/acct-1/us-east-1/i-0abc",
+     {
+      "scope": "cloud",
+      "kind": "item",
+      "name": "instance",
+      "id": "acct-1/us-east-1/i-0abc"
+     },
+     "a keyed projection's item: its key's parts are the address, its id unchanged"
+    ],
+    [
+     "/cloud/instance",
+     {
+      "scope": "cloud",
+      "kind": "projection",
+      "name": "instance"
+     },
+     "the keyed projection"
+    ],
+    [
+     "/ticket/4",
+     {
+      "scope": "",
+      "kind": "item",
+      "name": "ticket",
+      "id": "ticket/4"
+     },
+     "a glob query's item: the glob's prefix left out of the address and put back in the id"
+    ]
+   ],
+   "href": [
+    [
+     {
+      "kind": "item",
+      "id": "acct-1/us-east-1/i-0abc",
+      "projection": "instance"
+     },
+     null,
+     "/cloud/instance/acct-1/us-east-1/i-0abc"
+    ],
+    [
+     {
+      "kind": "item",
+      "id": "ticket/4"
+     },
+     null,
+     "/ticket/4"
+    ]
+   ],
+   "shadowed": [],
+   "unaddressed": []
   }
  ]
 }
