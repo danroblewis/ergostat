@@ -5191,12 +5191,15 @@ else is written per run. Its fields:
 
 The record holds the events as they are, about the block; the item index reads them as the run's as they arrive (it
 reads them already for the status's newest run of each block), and a run's page reads its two events by its id and by
-what it caused, never a scan. **Volume**: a busy block makes many runs, one row each in the index, like any
-projection's items (finished ones on disk only). They are loose events, never rolled up; a run lives as long as its
-`agent.started` is kept, and goes from the index when the record forgets it (`ergostat compact`, the record's
-`keep`). A block's runs are an id range of the index (`block` is the id's first part), so a list of one block's runs
+what it caused, never a scan. **Volume**: a busy block makes many runs (in a factory-size record half the events are
+runs'), so the index keeps each block's newest 200 runs, one row each, and takes the older out as new ones arrive
+(reading that block's rows alone; an index built again folds only those): every listing and count the index answers
+costs what the blocks make it, never what the record's length does. An older run is still an object: its page and
+`ergostat item` read its two events from the record by its id while they are kept. They are loose events, never
+rolled up; a run lives as long as its `agent.started` is kept (`ergostat compact`, the record's `keep`). A block's
+runs are an id range of the index (`block` is the id's first part), so a list of one block's runs
 (`/api/items?projection=ergostat.run&where=block:NAME&n=25&offset=...`) is counted and paged there, reading only the
-page's rows, however many runs it has.
+page's rows.
 
 Where it shows: an agent's page lists its runs (newest first, a page at a time: when, item, outcome, how long, what it
 moved, its outward actions, cost, CPU, memory, what it said), each linking to its run's page (its fields, its said, its

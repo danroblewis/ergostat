@@ -84,6 +84,13 @@ def test_an_agent_page_draws_each_section_under_its_anchor(browser, crew):  # no
     pg.locator("#what-it-did .runs-table tbody tr", has_text="5 handled").wait_for(timeout=WAIT)
     assert "Kind" in pg.locator("#main").inner_text()                     # the page's own Meta row
     assert settled(pg) == []
+    run = pg.locator("#what-it-did .runs-table tbody tr a[title^='run ']").first   # each run: its object (SPEC §9.1)
+    assert "ergostat.run" in (run.get_attribute("href") or "")
+    run.click()
+    pg.wait_for_url("**/ergostat.run/**", timeout=WAIT)
+    pg.locator("#main", has_text="worker").wait_for(timeout=WAIT)
+    pg.locator("#main", has_text="5 handled").wait_for(timeout=WAIT)
+    assert settled(pg) == []
     pg.close()
 
 
