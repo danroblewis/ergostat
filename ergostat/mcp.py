@@ -129,7 +129,8 @@ TOOLS = [
                           "n": {"type": "integer"}})},
     {"name": "projection_try", "description": "Try a projection before writing it (SPEC §5a, Trying a projection): yaml is "
      "its body (query:, key:, fields:, events:...) or projections: {NAME: ...}; it is compiled with the model and folded "
-     "in memory over the record (since/until: 7d or epoch seconds; limit: the newest N) or over events given, and a small "
+     "in memory over the whole record (since/until: 7d or epoch seconds, a window, said when it leaves events out; "
+     "limit: the newest N) or over events given, and a small "
      "report comes back instead of the events: matched by handler, not read / no key / unchanged grouped by shape (the "
      "event type and the data paths that tell them apart, a trimmed sample each), refused by reason, items, each field's "
      "coverage and values, states, duplicates (data.id or id repeated), and with expected ({KEY: {field: value}}) each "
@@ -141,8 +142,10 @@ TOOLS = [
                           "limit": {"type": "integer"}, "system": {"type": "string"}}, ["yaml"])},
     {"name": "events_shape", "description": "The stream's shape, instead of its events: each path into the events' JSON "
      "(type, item, source, data.detail.state; a list's members []), its types, how often it is there (%), how many "
-     "values it takes and up to five of them, trimmed. type: a glob (aws.*); since: 7d; limit: the newest N (5,000).",
-     "inputSchema": _obj({"type": {"type": "string"}, "since": {"type": "string"}, "limit": {"type": "integer"}})},
+     "values it takes and examples (5) of them, trimmed; the first 80 paths (all: every one; prefix: data.detail, only "
+     "those under it; paths_left says how many more). type: a glob (aws.*); since: 7d; limit: the newest N (5,000).",
+     "inputSchema": _obj({"type": {"type": "string"}, "since": {"type": "string"}, "limit": {"type": "integer"},
+                          "all": {"type": "boolean"}, "prefix": {"type": "string"}, "examples": {"type": "integer"}})},
     {"name": "events_query", "description": "The indexed query over the record (SPEC §5a, The query engine): query is an "
      "expression over an event (type.startswith('aws.'), data.detail.state == 'running', has('i-0abc')); how many events "
      "it holds (total, of record), how it was answered (exact, indexed, scanned, capped, estimated) and the newest limit "
@@ -153,21 +156,30 @@ TOOLS = [
                          ["query"])},
     {"name": "events_kinds", "description": "The kinds of event a query's result holds, suggested from the data (SPEC "
      "§5a, The workbench): each a name, a when: to put in a projection's events:, its count, the paths every event of "
-     "it has and two trimmed samples. taken: the when:s already accepted, in order; only the events none takes are "
-     "suggested from (untaken), and accepting every suggestion leaves nothing to suggest.",
+     "it has and two trimmed samples, split by the path naming the operation (eventName, methodName, operationName, "
+     "detail-type) where there is one. taken: the when:s already accepted, in order; only the events none takes are "
+     "suggested from (untaken), and accepting every suggestion leaves nothing to suggest. Ten at a time: offset (the "
+     "next page: kinds_left says how many more), limit, all: every one. The whole record unless since/until.",
      "inputSchema": _obj({"query": {"type": "string"}, "taken": {"type": "array", "items": {"type": "string"}},
-                          "since": {"type": "string"}, "until": {"type": "string"}}, ["query"])},
+                          "since": {"type": "string"}, "until": {"type": "string"}, "offset": {"type": "integer"},
+                          "limit": {"type": "integer"}, "all": {"type": "boolean"}}, ["query"])},
     {"name": "projection_review", "description": "A draft projection held against its events as the workbench holds it "
      "(SPEC §5a, The workbench): yaml its body (or projections: {NAME: ...}); per kind of event what it took; the "
      "objects; each field's distribution across them; each one-of field's lifecycle (transitions, counted); the "
      "residual (remainder: events no kind takes, by shape; no_key; refused by reason; contradictions; possible splits "
      "and merges); duplicates; unmapped (paths no field, key or time: reads and not ignored: what is left to decide); "
-     "with item=KEY that object's timeline; with expected ({KEY: {field: value}}) each field scored. Each residual "
-     "group's whole events are cut to 2 (whole: true keeps up to 10). Nothing is written.",
+     "with item=KEY that object's timeline (in event-time order, the fold's; late: events that arrived after a later "
+     "one); with expected ({KEY: {field: value}}) each field scored; with state=STATE (a,b) or where=EXPR (over the "
+     "folded object: state, key, name, events, fields.F) the objects it holds for (listed: key, name, state; limit, "
+     "200). Values are whole (width: N cuts text longer). The whole record unless since/until (a window that leaves "
+     "events out is said in read.window). Each residual group's whole events are cut to 2 (whole: true keeps up to "
+     "10). Nothing is written.",
      "inputSchema": _obj({"name": {"type": "string"}, "yaml": {"type": "string"}, "since": {"type": "string"},
                           "until": {"type": "string"}, "item": {"type": "string"},
                           "events": {"type": "array", "items": {"type": "object"}}, "expected": {"type": "object"},
-                          "compare": {"type": "boolean"}, "system": {"type": "string"}, "whole": {"type": "boolean"}},
+                          "compare": {"type": "boolean"}, "system": {"type": "string"}, "whole": {"type": "boolean"},
+                          "state": {"type": "string"}, "where": {"type": "string"}, "limit": {"type": "integer"},
+                          "width": {"type": "integer"}},
                          ["yaml"])},
     {"name": "why", "description": "Why an item is not done: its state and for how long (unusual or not for its projection), "
      "the cause followed to its root (what it waits on, what that waits on: unfinished work, a person, a full pool, a "
@@ -487,9 +499,12 @@ class Server:
             from .web.projection_api import moment, tried
             try:
                 if name == "events_shape":
-                    lim = a.get("limit")
+                    lim, ex = a.get("limit"), a.get("examples")
                     return _text(trying.stream_shape(p, a.get("type") or None, moment(a.get("since")),
-                                                     int(lim) if isinstance(lim, (int, float)) else None))
+                                                     int(lim) if isinstance(lim, (int, float)) else None,
+                                                     most=None if a.get("all") else trying.PATHS,
+                                                     prefix=a.get("prefix") or None,
+                                                     examples=int(ex) if isinstance(ex, (int, float)) else None))
                 return _text(tried(p, {**a, "yaml": a.get("yaml") if isinstance(a.get("yaml"), str) else ""}, keep=False))
             except trying.TryError as e:
                 return {**_text(str(e)), "isError": True}

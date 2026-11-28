@@ -8,7 +8,8 @@ professional in its discipline would have drawn it, beyond being correct. ``chec
 - ``no-equation``: a flow between two stocks with no equation nor declared rate (replayed, never projected);
 - ``collector-undescribed``: a sensor that reads the outside (``run:``, ``query:``) with no description (the Blocks
   view titles the collector with its command);
-- ``event-names-mixed``: a projection whose events are not all ``PROJECTION.verb-past``;
+- ``event-names-mixed``: a projection whose events are not all ``PROJECTION.verb-past`` (not one with a
+  ``query:`` reading more than its ids: its kinds of event name an outside log's, which ergostat does not name);
 - ``queue-goal-tolerance``: a goal served by a block that takes the items its stock counts, with a tolerance (or a
   setpoint above 0) that lets items wait unseen, since the block runs only while the goal is off;
 - ``schedule-removed``: a machine block with ``every:`` or ``cron:``, no ``takes:`` or ``on:``, and a ``goal:``: the
@@ -100,8 +101,8 @@ def notes(spec: Spec, say) -> None:
                         f"collector with its command: say what it reads in 40 characters or fewer", s.where or x.where,
                         f"{kind}.{n}")
     for kind, k in spec.items.items():
-        if kind.startswith("ergostat.") or _made(k) or not k.on:
-            continue
+        if kind.startswith("ergostat.") or _made(k) or not k.on or getattr(k, "query_open", False):
+            continue                                 # (an open query: its kinds name an outside log's, not ergostat's)
         odd = event_forms(spec, kind)
         if odd:
             said = ", ".join(f"{e} → {c}" for e, _, c in odd[:6]) + ("…" if len(odd) > 6 else "")

@@ -30,6 +30,8 @@ from .ir import (
     MODELLING_REQUEST,
     NAME,
     NAMED_ONLY,
+    PROJECTION_NAME,
+    STATE,
     SESSION,
     VERDICT,
     WORKSPACE,
@@ -73,7 +75,7 @@ SENSOR_KEYS = {"run", "query", "manual", "projection", "builtin", "daemon", "jou
                "unit", "description", "averages", "runs-on"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
-ITEM_KEYS = COMMON | {"query", "key", "name", "time", "ignore", "fields", "events", "show", "formats", "lease", "relations", "join", "about", "final",
+ITEM_KEYS = COMMON | {"query", "key", "name", "time", "ignore", "defaults", "fields", "events", "show", "formats", "lease", "relations", "join", "about", "final",
                       "finished", "lost", "moves-from", "if-unchanged", "attention", "pipeline", "risk-score", "group",
                       "dashboards"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
@@ -742,7 +744,8 @@ class Compiler:
               and all(isinstance(s, str) and NAME.match(s) for s in names)
               and rules.get("stages", "merge") == "merge"
               and (w is None or (isinstance(w, dict) and set(w) <= {"projection", "state", "order"}
-                                 and all(isinstance(w.get(k), str) and NAME.match(w[k]) for k in ("projection", "state"))
+                                 and isinstance(w.get("projection"), str) and PROJECTION_NAME.match(w["projection"])
+                                 and isinstance(w.get("state"), str) and STATE.match(w["state"])
                                  and all(isinstance(f, str) and WORD.match(f) for f in w.get("order") or []))))
         if not ok:
             self.err(f"{what}.pipeline: {{title: TEXT, stages: [its stage names, at most {STAGES_MOST}], waiting: "
@@ -797,10 +800,10 @@ class Compiler:
         if st is not None and st.type.base not in ("values", None, "text"):
             self.err(f"{what}.fields.state: the state is text, with values: [its states] (the first is where a new object "
                      f"starts)", m.at("fields"), "bad-states")
-        if any(not NAME.match(s) for s in states):
-            self.err(f"{what}.fields.state: its states are names (lowercase letters, digits and -)", m.at("fields"),
-                     "bad-states")
-            states = [s for s in states if NAME.match(s)]
+        if any(not STATE.match(s) for s in states):           # any case, kept as written and compared exactly
+            self.err(f"{what}.fields.state: its states are words (no space at either end; at most 64 characters)",
+                     m.at("fields"), "bad-states")
+            states = [s for s in states if STATE.match(s)]
         # which events it reads
         query, query_open, id = None, False, None
         q = m.get("query")
@@ -856,6 +859,24 @@ class Compiler:
                          m.at("ignore") or m.where, "bad-ignore")
             else:
                 ignore = tuple(x.strip() for x in ign)
+        # the field values every kind of event gives unless it gives its own (SPEC §5a, *Defaults*)
+        dfl = m.get("defaults")
+        defaults: dict = {}
+        if dfl is not None:
+            if not isinstance(dfl, dict):
+                self.err(f"{what}.defaults: a map of field: value that every kind of event under events: gives unless it "
+                         f"gives its own (account: data.account)", m.at("defaults") or m.where, "not-a-map")
+            elif m.get("events") is None:
+                self.err(f"{what}.defaults: given to the kinds of event under events:, and it has none",
+                         m.at("defaults") or m.where, "bad-defaults")
+            else:
+                for f, v in dfl.items():
+                    if f in ("when", "key"):
+                        self.err(f"{what}.defaults.{f}: defaults give fields their values; a kind's when: is its own",
+                                 dfl.at(f) if hasattr(dfl, "at") else m.where, "bad-defaults")
+                        continue
+                    defaults[f] = (v, (dfl.at(f) if hasattr(dfl, "at") else None) or m.at("defaults") or m.where)
+        said_from = len(self.problems)
         # the kinds of event it reads
         evs = m.get("events")
         kinds, handlers, moves, kind_moves = [], {}, {}, {}
@@ -890,6 +911,8 @@ class Compiler:
                     self.err(f"{what}.events.{kn}.when: {e}", h.at("when") if hasattr(h, "at") else w, e.code)
                     continue
                 got = {}
+                if defaults:                         # the defaults first, a kind's own value for a field instead
+                    h = _Defaulted(h, defaults)
                 if "key" in h:
                     self.err(f"{what}.events.{kn}.key: a kind of event has no key of its own: the projection's key: names "
                              f"its fields, and each kind maps them like any other field", h.at("key") if hasattr(h, "at")
@@ -947,6 +970,15 @@ class Compiler:
                     got[f] = v
                 kinds.append(EventKind(kn, when, None, got, w))
                 handlers[kn] = got
+        if defaults:                                 # a default's error is said once, where the default is
+            whs, seen, kept = [x[1] for x in defaults.values()], [], []
+            for pr in self.problems[said_from:]:      # (``id`` is the projection's here: by identity, with ``is``)
+                at = next((i for i, w_ in enumerate(whs) if pr.where is w_), None)
+                if at is not None and (pr.code, at) in seen:
+                    continue
+                seen.append((pr.code, at))
+                kept.append(pr)
+            self.problems[said_from:] = kept
         if evs is None:
             handlers = {k.name: k.fields for k in kinds}
         if key:                                      # each kind's key, solved from what it maps to the key's fields
@@ -1284,11 +1316,13 @@ class Compiler:
                 spec.budget = b
 
     def named(self, section: str):
+        pat = PROJECTION_NAME if section == "projections" else NAME     # a projection's may hold _ (an outside log's)
         for name, m in self.doc.sections[section].items():
             what = f"{SINGULAR.get(section, section[:-1])} {name}"
             w = self.doc.defined[(section, name)]
-            if not isinstance(name, str) or not NAME.match(name):
-                self.err(f"{what}: a name is lowercase letters, digits and -, starting with a letter", w, "bad-name")
+            if not isinstance(name, str) or not pat.match(name):
+                self.err(f"{what}: a name is lowercase letters, digits and -"
+                         + (" (and _)" if section == "projections" else "") + ", starting with a letter", w, "bad-name")
                 continue
             if not isinstance(m, dict):
                 self.err(f"{what}: a map of its keys (block style: one key per line)", w, "not-a-map")
@@ -2233,6 +2267,20 @@ class Compiler:
         for n in sorted(edges):
             if state.get(n) is None and visit(n, [n]):
                 break
+
+
+class _Defaulted(dict):
+    """A kind of event's entry with the projection's defaults in it (its own values win); ``at``: the line of its
+    own value, else the default's."""
+
+    def __init__(self, own, defaults: dict):
+        super().__init__({**{f: v for f, (v, _) in defaults.items() if f not in own}, **own})
+        self._own, self._defaults = own, defaults
+
+    def at(self, k):
+        if k in self._own:
+            return self._own.at(k) if hasattr(self._own, "at") else None
+        return self._defaults[k][1] if k in self._defaults else None
 
 
 def _one(m: Map, k) -> Map:

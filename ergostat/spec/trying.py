@@ -9,6 +9,7 @@ and a few of its values, so an agent reads that instead of the events themselves
 
 from __future__ import annotations
 
+import contextvars
 import copy
 import hashlib
 import json
@@ -33,7 +34,7 @@ KEEP_S = 900              # how long a draft's items are kept for the page
 DRAFTS_KEPT = 8
 SKIP = ("agent.*", "loop.*", "valve.*", "controller.*", "model.*", "ergostat.*", "auxiliary.*", "variable.*",
         "trigger.*", "budget.*", "claude.*", "block.*", "person.*", "sensor.*")   # ergostat's own record, not a stream
-NAME = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+NAME = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 
 class TryError(ValueError):
@@ -42,9 +43,13 @@ class TryError(ValueError):
 
 # ---- trimming: every value said is short
 
+WIDTH = contextvars.ContextVar("trim_width", default=60)   # the longest text said whole (0: any; the review's width)
+
+
 def trim(v, depth: int = 0):
     if isinstance(v, str):
-        return v if len(v) <= 60 else v[:57] + "..."
+        w = WIDTH.get()
+        return v if not w or len(v) <= w else v[:max(1, w - 3)] + "..."
     if isinstance(v, dict):
         if depth >= 3:
             return "{...}"
@@ -170,7 +175,7 @@ def placed(p, spec, name: str, text: str, system: str = "", today: str | None = 
         return ye.Edit(str(f), [ye.Hunk(first, ls[first - 1:end], new)]), at + 1 + (1 if changed and first == at else 0), \
             len(body)
     if not NAME.match(name):
-        raise TryError(f"{name!r} is not a projection's name (lowercase letters, digits and -, starting with a letter)")
+        raise TryError(f"{name!r} is not a projection's name (lowercase letters, digits, - and _, starting with a letter)")
     f = (display.system_file(spec, system) if system else None) or Path(p.model.path)
     extra = [f"    system: {json.dumps(system)}"] if system and display._defaults_system(f) != system else []
     if today is not None:
@@ -265,9 +270,57 @@ def _scalars(e: dict) -> dict:
     return out
 
 
-def _splitter(evs: list[dict], sc: list[dict], base: float) -> str | None:
-    """The data path whose values best tell these events' shapes apart (each value's events of one shape): present in
-    nine in ten of them, 2 to 20 values; None when none tells them apart better than ``base``."""
+OPERATION = ("eventname", "methodname", "operationname", "detailtype", "eventtype", "operation", "action", "verb",
+             "method", "activity", "activityname", "event", "operationtype")     # a path naming what happened
+NAMING = ("type", "kind", "name", "category", "eventsource", "service", "servicename", "resourcetype")   # weaker
+INCIDENTAL = re.compile(r"(ip|ipaddress|address|addr|host|useragent|agent|id|uuid|guid|requestid|time|"
+                        r"timestamp|date|seq|sequence|status|statuscode|result|resulttype|resultcode|code|errorcode|"
+                        r"level|severity|latency|duration|version|region|zone|location|account|accountid|caller|"
+                        r"callerip|sourceipaddress|port|size|count|bytes)$")
+OUTCOME = re.compile(r"(status|result|code|level|severity|error)")
+IP = re.compile(r"^(\d{1,3}\.){3}\d{1,3}$|^[0-9a-f:]{6,}$", re.I)
+IDLIKE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-|^[0-9a-f]{16,}$|^\d+$|^\d{4}-\d\d-\d\d", re.I)
+WORDY = re.compile(r"^[A-Za-z][A-Za-z0-9_.:/ -]{1,120}$")
+SPLIT_MOST = 200          # the most values a path naming the operation splits by (any other: 20)
+
+
+def _segs(path: str) -> list[str]:
+    return [re.sub(r"[^a-z0-9]", "", x.lower()) for x in path.removeprefix("data.").split(".")]
+
+
+def _operation(path: str) -> float:
+    """How surely a path names what happened (eventName, methodName, operationName, detail-type): 1, 0.4 for a
+    weaker name (type, kind, name, eventSource), else 0; its last part counts most, a parent's (operationName.value)
+    almost as much."""
+    sg = _segs(path)
+    last, parents = sg[-1], sg[:-1]
+    if last in OPERATION:
+        return 1.0
+    if last in ("value", "localizedvalue") and parents and parents[-1] in OPERATION:
+        return 0.9 if last == "value" else 0.8         # (Azure's operationName.value; its localizedValue for people)
+    if last in NAMING:
+        return 0.4
+    return 0.0
+
+
+def _incidental(path: str, values) -> float:
+    """How surely a path holds a value incidental to what happened (a caller's IP, an id, a time, a result or status
+    code): 1 by its values, 0.6 by its name, else 0."""
+    vs = [v for v in values if isinstance(v, str)]
+    if vs and sum(1 for v in vs if IP.match(v) or IDLIKE.match(v)) >= 0.5 * len(vs):
+        return 1.0
+    if values and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in values):
+        return 0.6
+    return 0.6 if INCIDENTAL.search(_segs(path)[-1]) else 0.0
+
+
+def _splitter(evs: list[dict], sc: list[dict], base: float, outcome_too: bool = True) -> str | None:
+    """The data path whose values best tell these events apart: present in nine in ten of them, 2 to 20 values (200
+    for one naming the operation); scored by how well its values tell the events' shapes apart (each value's events of
+    one shape), raised for a path that names what happened (eventName, methodName, operationName, detail-type: few
+    values, each a verb or a name), lowered for one incidental to it (a caller's IP, an id, a time; a result or status,
+    when a path naming the operation is there, or ``outcome_too`` is false). None when none tells them apart better
+    than ``base`` (a path naming the operation splits even events of one shape)."""
     n = len(evs)
     if n < 2:
         return None
@@ -277,20 +330,35 @@ def _splitter(evs: list[dict], sc: list[dict], base: float) -> str | None:
         for k, v in s.items():
             if isinstance(v, (str, bool, int)) and not k.endswith("[]"):
                 d = seen.setdefault(k, {})
-                if len(d) <= 20:
+                if len(d) <= SPLIT_MOST:
                     d.setdefault(json.dumps(v), []).append(1)
-    best, score = None, base
+    rows = []
     for k, d in seen.items():
         have = sum(len(x) for x in d.values())
-        if have < 0.9 * n or not 2 <= len(d) <= 20 or len(d) > max(2, have / 3):
+        op = _operation(k)
+        most = SPLIT_MOST if op >= 0.9 else 20
+        if have < 0.9 * n or not 2 <= len(d) <= most or (len(d) > max(2, have / 3) and op < 0.9):
             continue                                 # (an id, a time: a value of each its own tells nothing)
+        vals = [json.loads(x) for x in d]
+        wordy = sum(1 for v in vals if isinstance(v, str) and WORDY.match(v) and not IP.match(v)
+                    and not IDLIKE.match(v)) / len(vals)
         by: dict = {}
         for s, sig in zip(sc, sigs, strict=True):
             if k in s:
                 by.setdefault(json.dumps(s[k]), Counter())[sig] += 1
         purity = sum(c.most_common(1)[0][1] for c in by.values()) / n
-        if purity > score + 0.02 or (best is not None and abs(purity - score) <= 0.02 and len(d) < len(seen[best])):
-            best, score = k, max(purity, score)
+        rows.append((k, len(d), purity, op if wordy >= 0.8 else op / 2, _incidental(k, vals), wordy))
+    if not rows:
+        return None
+    op_there = any(r[3] >= 0.9 for r in rows)
+    best, score = None, base + 0.02
+    for k, nv, purity, op, inc, wordy in rows:
+        outcome = OUTCOME.search(_segs(k)[-1]) is not None
+        pen = 0.5 * inc if (op_there or not outcome_too or not outcome) else 0.15 * inc
+        sc_ = purity + 0.3 * op + 0.05 * wordy - pen - 0.001 * nv
+        good = purity > base + 0.02 or op >= 0.9
+        if good and sc_ > score:
+            best, score = k, sc_
     return best
 
 
@@ -317,7 +385,7 @@ def grouped(evs: list[dict], cap: int = GROUPS, samples: int = 1) -> dict:
             parts.setdefault(json.dumps(s.get(first)), []).append((e, s))
         for v, pairs in parts.items():
             sub_e, sub_s = [x[0] for x in pairs], [x[1] for x in pairs]
-            second = _splitter(sub_e, sub_s, _purity(sub_s))
+            second = _splitter(sub_e, sub_s, _purity(sub_s), outcome_too=False)
             if second is None:
                 groups.append(({"type": t, first.removeprefix("data."): json.loads(v)}, sub_e))
                 continue
@@ -511,6 +579,12 @@ def run(p, name: str | None, text: str, since: float | None = None, until: float
         "states": dict(states.most_common()) if kind.states else None,
         "duplicates": _dups(read),
     })
+    if events is None:
+        from .workbench import window_note
+        note = window_note(p, kind.query.text if kind.query is not None else f"glob(key, {kind.id!r})", since, until,
+                           len(read))
+        if note:
+            out["events"]["window"] = note
     if expected is not None:
         out["expected"] = scored(items, expected)
     if item is not None:
@@ -554,10 +628,16 @@ def trace(kind, it, evs: list[dict], key: str) -> dict:
 
 # ---- the stream's shape
 
-def shape(evs: list[dict], most: int = 80) -> dict:
+PATHS = 80                # paths a shape says (all: every one)
+EXAMPLES = 5              # example values per path
+
+
+def shape(evs: list[dict], most: int | None = PATHS, prefix: str | None = None, examples: int = EXAMPLES) -> dict:
     """Each path into the events (``type``, ``item``, ``source``, ``data.a.b``; a list's members ``[]``): its types,
-    how often it is there, how many values it takes, up to five of them."""
+    how often it is there, how many values it takes, up to ``examples`` of them; the first ``most`` paths (None:
+    every one), only those at or under ``prefix`` (``data.detail``) when it is given; ``paths_left``: how many more."""
     n = len(evs)
+    examples = max(0, int(examples))
     stats: dict[str, dict] = {}
 
     def walk(v, path: str, here: set, depth: int) -> None:
@@ -577,7 +657,7 @@ def shape(evs: list[dict], most: int = 80) -> dict:
             j = json.dumps(v, default=str)
             if len(s["values"]) <= 1000:
                 s["values"].add(j)
-            if len(s["examples"]) < 5 and v not in s["examples"]:
+            if len(s["examples"]) < examples and v not in s["examples"]:
                 s["examples"].append(v)
 
     for e in evs:
@@ -588,25 +668,33 @@ def shape(evs: list[dict], most: int = 80) -> dict:
         walk(e.get("data") or {}, "data", here, 0)
     types = Counter(e.get("type") for e in evs)
     rows = []
-    for path, s in list(stats.items())[:most]:
+    pre = (prefix or "").strip().rstrip(".")
+    chosen = [(pa, x) for pa, x in stats.items() if not pre or pa == pre or pa.startswith(pre + ".")
+              or pa.startswith(pre + "[]")]
+    for path, s in chosen[:most]:
         r = {"path": path, "pct": round(100 * s["n"] / n, 1) if n else 0, "types": dict(s["types"])}
         if s["values"]:
             r["distinct"] = len(s["values"]) if len(s["values"]) <= 1000 else "1000+"
             r["examples"] = [trim(x) for x in s["examples"]]
         rows.append(r)
-    return {"events": n, "types": dict(types.most_common(GROUPS)), "paths": rows,
-            **({"paths_left": len(stats) - most} if len(stats) > most else {})}
+    left = len(chosen) - len(rows)
+    return {"events": n, "types": dict(types.most_common(GROUPS)), "paths": rows, "paths_total": len(chosen),
+            **({"prefix": pre} if pre else {}), **({"paths_left": left} if left > 0 else {})}
 
 
 def stream_shape(p, type: str | None = None, since: float | None = None, limit: int | None = None,
-                 draft: str | None = None) -> dict:
+                 draft: str | None = None, most: int | None = PATHS, prefix: str | None = None,
+                 examples: int | None = None) -> dict:
+    """The stream's shape (``shape``): the newest ``limit`` events (5,000), of ``type`` when given."""
+    ex = EXAMPLES if examples is None else examples
     if draft is not None:
         d = _get(draft)
         if d is not None and d["events"]:
-            return {**shape(d["events"][-(limit or 5000):]), "of": f"the events projection {d['name']} reads"}
+            return {**shape(d["events"][-(limit or 5000):], most, prefix, ex),
+                    "of": f"the events projection {d['name']} reads"}
     n = max(1, min(int(limit or 5000), 50_000))
     evs = p.events.query(n=n, type=type or None, since=since, skip=() if type else SKIP)
-    return {**shape(evs), "of": f"the newest {n} events" + (f" of type {type}" if type else "")}
+    return {**shape(evs, most, prefix, ex), "of": f"the newest {n} events" + (f" of type {type}" if type else "")}
 
 
 # ---- the drafts kept for the page
@@ -682,6 +770,7 @@ def text_of(r: dict) -> str:
     m, ev = r["matched"], r["events"]
     out = [f"projection {r['projection']}: {_n(ev['read'])} events read ({ev['source']}"
            f"{', capped' if ev.get('capped') else ''}), {r['took_s']}s",
+           *([f"  window     {ev['window']['says']}"] if ev.get("window") else []),
            f"  matched    {_n(m['count']):>8}  {m['pct']}%   " + ", ".join(f"{h} {_n(c)}" for h, c in m["by_handler"].items())]
 
     def groups(label, g):
@@ -743,7 +832,8 @@ def shape_text(r: dict) -> str:
     for x in r["paths"]:
         ex = ", ".join(json.dumps(v, default=str) for v in x.get("examples", []))
         out.append(f"  {x['path']:<40} {x['pct']:>5}%  {'/'.join(x['types']):<12} "
-                   f"{('distinct ' + str(x['distinct'])) if 'distinct' in x else '':<14} {ex}"[:160].rstrip())
+                   f"{('distinct ' + str(x['distinct'])) if 'distinct' in x else '':<14} {ex}".rstrip())
     if r.get("paths_left"):
-        out.append(f"  ... {r['paths_left']} more paths")
+        out.append(f"  ... {r['paths_left']} more paths of {r.get('paths_total', '?')} (--all for every one; "
+                   f"--prefix PATH for those under it)")
     return "\n".join(out)

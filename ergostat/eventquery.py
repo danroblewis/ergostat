@@ -448,8 +448,22 @@ def _run(events, ask: dict) -> dict:
         a, b = set(seqs), set(old["seqs"])
         out["compare"] = {"query": c.text, "total": old["total"], "added": len(a - b), "dropped": len(b - a),
                           **({"estimated": True} if old.get("estimated") or m.get("estimated") else {})}
+    if since is not None or until is not None:      # a window that leaves events out says so
+        whole = matches(ix, q)["total"]
+        if whole > out["total"]:
+            from .spec.workbench import window_note
+            note = window_note(_Whole(events), q.text, since, until, out["total"])
+            if note:
+                out["window"] = note
     out["took_ms"] = round((time.perf_counter() - t0) * 1000, 1)
     return out
+
+
+class _Whole:
+    """A project-like holder of the record, for ``window_note``."""
+
+    def __init__(self, events):
+        self.events = events
 
 
 def events_matching(events, text: str, since=None, until=None, most: int = 200_000) -> tuple[list[dict], dict]:

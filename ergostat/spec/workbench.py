@@ -130,7 +130,7 @@ def shapes(evs: list[dict], cap: int = GROUPS) -> dict:
             parts.setdefault(json.dumps(s.get(first)), []).append((e, s))
         for v, pairs in parts.items():
             sub_e, sub_s = [x[0] for x in pairs], [x[1] for x in pairs]
-            second = trying._splitter(sub_e, sub_s, trying._purity(sub_s))
+            second = trying._splitter(sub_e, sub_s, trying._purity(sub_s), outcome_too=False)
             if second is None:
                 groups.append(({first: json.loads(v)}, t, sub_e))
                 continue
@@ -182,29 +182,72 @@ def _holds(q, e: dict) -> bool:
     return bool(q.literal) if q.tree is None else bool(evaluate(q, _env(e)))
 
 
+KINDS_MOST = 200           # kinds of event one suggestion considers, at most (paged: offset, limit, all)
+
+
 def suggest(p, ask: dict) -> dict:
-    """``POST /api/events/kinds``: ``{query, since?, until?, events?, taken?}`` → the kinds of event its result holds
-    (``taken``: the accepted kinds' ``when:``s; only the events none of them takes are suggested from, and only
-    suggestions that would take one)."""
+    """``POST /api/events/kinds``: ``{query, since?, until?, events?, taken?, offset?, limit?, all?}`` → the kinds of
+    event its result holds (``taken``: the accepted kinds' ``when:``s; only the events none of them takes are suggested
+    from, and only suggestions that would take one), the largest first, ``limit`` of them (10) from ``offset`` (0),
+    or every one (``all``: up to KINDS_MOST); ``kinds_left``: how many come after the page."""
     if not isinstance(ask, dict):
-        raise TryError("a suggestion is {query, since?, until?, events?, taken?}")
+        raise TryError("a suggestion is {query, since?, until?, events?, taken?, offset?, limit?, all?}")
     t0 = time.time()
     evs, how = events_for(p, ask.get("query"), ask.get("since"), ask.get("until"), ask.get("events"))
     taken = _whens(ask.get("taken"))
     left = [e for e in evs if not any(_holds(q, e) for q in taken)] if taken else evs
-    got = shapes(left)
+    got = shapes(left, KINDS_MOST)
     rest, kept = left, []
     for k in got["kinds"]:                       # in order, the first whose when: holds takes an event
         q = _whens([k["when"]])
-        if not q:
+        if not q or not rest:
             continue
         mine = [e for e in rest if _holds(q[0], e)]
         if mine:
             rest = [e for e in rest if not _holds(q[0], e)] if len(mine) < len(rest) else []
             kept.append({**k, "count": len(mine)})
-    return {"query": ask.get("query"), "taken": list(ask.get("taken") or []), "read": how, **got, "kinds": kept,
-            "count": len(evs), "untaken": len(left),
+
+    def num(x, d):
+        return int(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and x >= 0 else d
+    off = num(ask.get("offset"), 0)
+    lim = len(kept) if ask.get("all") else max(1, num(ask.get("limit"), GROUPS))
+    page = kept[off:off + lim]
+    left_after = len(kept) - off - len(page) + got.get("kinds_left", 0)
+    got.pop("kinds_left", None)
+    return {"query": ask.get("query"), "taken": list(ask.get("taken") or []), "read": how, **got, "kinds": page,
+            "count": len(evs), "untaken": len(left), "offset": off, "kinds_total": len(kept),
+            **({"kinds_left": left_after} if left_after > 0 else {}),
+            **({"window": w} if (w := window_note(p, ask.get("query"), ask.get("since"), ask.get("until"),
+                                                  len(evs), ask.get("events"))) else {}),
             "took_s": round(time.time() - t0, 3)}
+
+
+def window_note(p, query, since, until, read: int, given=None) -> dict | None:
+    """When a window (since, until) leaves events out: how many the query holds in the whole record, the record's
+    span, and the words to say it ("read 0 of 2,501 events: since 1h ago; the record spans 3d"); None otherwise."""
+    if given is not None or (since is None and until is None):
+        return None
+    from ..eventquery import index_for, matches, compile_query, QueryError, _LOCK
+    try:
+        q = compile_query(query) if query else None
+    except QueryError:
+        return None
+    with _LOCK:
+        ix = index_for(p.events)
+        whole = matches(ix, q)["total"] if q is not None else ix.count()
+        lo, hi = ix.db.execute("select min(time), max(time) from ev").fetchone()
+    if whole <= read:
+        return None
+    from ..durations import human as format_duration
+    span = format_duration(max(0.0, (hi or 0) - (lo or 0))) if lo is not None else "0s"
+    bits = []
+    if since is not None:
+        bits.append(f"since {format_duration(max(0.0, time.time() - since))} ago")
+    if until is not None:
+        bits.append(f"until {format_duration(max(0.0, time.time() - until))} ago")
+    return {"read": read, "of": whole, "left_out": whole - read, "record_from": lo, "record_to": hi,
+            "says": f"read {read:,} of {whole:,} events: {', '.join(bits)}; the record spans {span} "
+                    f"(leave out since/until for the whole record)"}
 
 
 # ---- paths: what the kinds' events hold, and what the draft reads of them
@@ -287,8 +330,8 @@ def covered(path: tuple, by) -> bool:
 
 
 def unmapped(kind, evs: list[dict], took: dict) -> dict:
-    """The paths in the kinds' events that no field, key or ``time:`` of the kind that took them reads, and that are
-    not ignored, each with how many events have it and which kinds: what is left to decide."""
+    """The paths in the kinds' events that no field, key, ``time:`` or ``when:`` of the kind that took them
+    reads, and that are not ignored, each with how many events have it and which kinds: what is left to decide."""
     ignored = {x for x in (path_of_text(s) for s in kind.ignore) if x is not None}
     base: set = {("key",)} if kind.key is None else set()
     read = {}
@@ -296,6 +339,7 @@ def unmapped(kind, evs: list[dict], took: dict) -> dict:
         r = set(base)
         if kind.own_time is not None:
             refs(kind.own_time.tree, r)
+        refs(k.when.tree, r)                         # what tells the kind's events apart is read too
         for v in (k.key or []):
             refs(v.tree, r)
         for v in k.fields.values():
@@ -675,10 +719,17 @@ def timeline(kind, it, evs: list[dict], key: str, took: dict) -> dict:
     mv = {m["event"]: m for m in it.moves}
     rf = {r["event"]: r for r in it.refused}
     rows = []
+    late, newest = set(), None                       # arrived after an event of a later event time: late
+    for e in sorted(evs, key=lambda e: (e["time"], e.get("seq") or 0)):
+        t = own_time(kind, e) or e["time"]
+        if newest is not None and t < newest:
+            late.add(e["id"])
+        newest = t if newest is None else max(newest, t)
     order = sorted(evs, key=lambda e: (own_time(kind, e) or e["time"], e.get("seq") or 0))
     for e in order[:TIMELINE_MOST]:
         t = own_time(kind, e)
-        row = {"id": e["id"], "time": t, "recorded": e["time"], "type": e.get("type"), "kind": took.get(e["id"])}
+        row = {"id": e["id"], "time": t, "recorded": e["time"], "type": e.get("type"), "kind": took.get(e["id"]),
+               **({"late": True} if e["id"] in late else {})}
         cs = [c for c in ch.get(e["id"], []) if c.get("op") != "refused"]
         if cs:
             row["changes"] = [{"field": c["path"][1:] or "/", "before": trim(c["before"]), "after": trim(c["after"])}
@@ -690,13 +741,59 @@ def timeline(kind, it, evs: list[dict], key: str, took: dict) -> dict:
         elif not cs and e["id"] not in mv:
             row["unchanged"] = True
         rows.append(row)
-    return {"key": key, "found": True, "state": it.state, "events": len(evs), "steps": rows,
+    return {"key": key, "found": True, "state": it.state, "events": len(evs), "order": "event time", "late": len(late),
+            "steps": rows,
             **({"steps_left": len(evs) - TIMELINE_MOST} if len(evs) > TIMELINE_MOST else {}), "fields": trim(it.fields)}
 
 
+LIST_MOST = 200            # objects one listing (state, where) gives, at most
+
+
 def review(p, ask: dict) -> dict:
-    """``POST /api/projections/review``: ``{name, yaml, since?, until?, item?, events?, compare?}`` (``yaml``: the draft
-    projection's body; ``compare``: false to leave out the comparison with the saved definition) → the review."""
+    """``POST /api/projections/review``: ``{name, yaml, since?, until?, item?, events?, compare?, state?, where?,
+    width?}`` (``yaml``: the draft projection's body; ``compare``: false to leave out the comparison with the saved
+    definition; ``state``/``where``: list the objects in that state, or for which that expression over the folded
+    object holds (``state``, ``key``, ``name``, ``events``, ``fields.F``), up to ``limit`` (LIST_MOST); ``width``: the
+    longest text said whole, 0 for any (the default)) → the review."""
+    if not isinstance(ask, dict):
+        raise TryError("a review is {name, yaml, since?, until?, item?, events?, compare?, state?, where?, width?}")
+    w = ask.get("width")
+    tok = trying.WIDTH.set(int(w) if isinstance(w, (int, float)) and not isinstance(w, bool) and w >= 0 else 0)
+    try:
+        return _review(p, ask)
+    finally:
+        trying.WIDTH.reset(tok)
+
+
+def listed(kind, items: dict, state=None, where=None, limit=None) -> dict:
+    """The folded objects in ``state`` (any of a list), or for which ``where`` holds (an expression over the object:
+    ``state``, ``key``, ``name``, ``events``, ``fields.F``), each its key, name and state; at most ``limit``."""
+    from .handlers import BadExpr, compile_value, evaluate
+    from .items import display_name
+    q = None
+    if where not in (None, ""):
+        try:
+            q = compile_value(str(where), {}, ("state", "key", "name", "events", "fields"))
+        except BadExpr as e:
+            raise TryError(f"where: {e} (an expression over an object: state, key, name, events, fields.F)") from None
+    states = None if state in (None, "") else ([str(x) for x in state] if isinstance(state, list) else
+                                                [x.strip() for x in str(state).split(",") if x.strip()])
+    most = max(1, min(int(limit), 5000)) if isinstance(limit, (int, float)) and not isinstance(limit, bool) else LIST_MOST
+    got = []
+    for k in sorted(items):
+        it = items[k]
+        if states is not None and it.state not in states:
+            continue
+        nm = display_name(kind, it) if kind.display is not None else None
+        if q is not None and not evaluate(q, {"state": it.state, "key": k, "name": nm, "events": it.n,
+                                              "fields": it.fields}):
+            continue
+        got.append({"key": k, **({"name": nm} if nm else {}), "state": it.state})
+    return {**({"state": states} if states is not None else {}), **({"where": str(where)} if q is not None else {}),
+            "count": len(got), "objects": got[:most], **({"objects_left": len(got) - most} if len(got) > most else {})}
+
+
+def _review(p, ask: dict) -> dict:
     if not isinstance(ask, dict):
         raise TryError("a review is {name, yaml, since?, until?, item?, events?, compare?}")
     if getattr(p.model, "spec", None) is None:
@@ -745,6 +842,11 @@ def review(p, ask: dict) -> dict:
     if kind.display is not None:                 # each listed object's name (SPEC §5a, *An object's name*), when it has one
         from .items import display_name
         out["objects"]["names"] = {k: nm for k in out["objects"]["keys"] if (nm := display_name(kind, items[k]))}
+    if ask.get("state") not in (None, "", []) or ask.get("where") not in (None, ""):
+        out["listed"] = listed(kind, items, ask.get("state"), ask.get("where"), ask.get("limit"))
+    note = window_note(p, q, since, until, len(evs), ask.get("events"))
+    if note:
+        out["read"]["window"] = note
     if ask.get("item"):
         k = str(ask["item"])
         out["timeline"] = timeline(kind, items.get(k), by_key.get(k) or [], k, took)

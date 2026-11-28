@@ -214,8 +214,63 @@ def _pairs(obj, k="key", v="value"):
     return {str(x.get(k)): copy.deepcopy(x.get(v)) for x in obj if isinstance(x, dict) and x.get(k) is not None}
 
 
-HELPERS = {"pick": _pick, "omit": _omit, "rename": _rename, "glob": _glob, "pairs": _pairs}   # plain functions,
-#                                                                                   usable anywhere (a spread's too)
+def _int(x):
+    """``int(x)``: a whole number from a number or its text (``'42'``, ``'4.0'``); null for anything else."""
+    if isinstance(x, bool) or x is None:
+        return None
+    try:
+        f = float(x.strip()) if isinstance(x, str) else float(x) if isinstance(x, (int, float)) else None
+    except ValueError:
+        return None
+    return int(f) if f is not None and f == f and abs(f) != float("inf") else None
+
+
+def _float(x):
+    """``float(x)``: a number from a number or its text; null for anything else."""
+    if isinstance(x, bool) or x is None:
+        return None
+    try:
+        f = float(x.strip()) if isinstance(x, str) else float(x) if isinstance(x, (int, float)) else None
+    except ValueError:
+        return None
+    return f if f is not None and f == f and abs(f) != float("inf") else None
+
+
+def _str(x):
+    """``str(x)``: text (a number as written, true/false, an object or list as JSON); null stays null."""
+    if x is None or isinstance(x, str):
+        return x
+    if isinstance(x, bool):
+        return "true" if x else "false"
+    if isinstance(x, (dict, list)):
+        return json.dumps(x, separators=(",", ":"), sort_keys=True, default=str)
+    return str(x)
+
+
+def _json(x):
+    """``json(x)``: JSON text parsed (an Azure ``properties.responseBody``, a GCP ``requestJson``); an object or list as
+    it is; null for anything that is not JSON."""
+    if isinstance(x, (dict, list)):
+        return x
+    if not isinstance(x, str):
+        return None
+    try:
+        return json.loads(x)
+    except (ValueError, RecursionError):
+        return None
+
+
+def _case(name):
+    def f(x):
+        return getattr(x, name)() if isinstance(x, str) else None
+    f.__name__ = name
+    return f
+
+
+HELPERS = {"pick": _pick, "omit": _omit, "rename": _rename, "glob": _glob, "pairs": _pairs,   # plain functions,
+           "int": _int, "float": _float, "str": _str, "json": _json,                       # usable anywhere
+           "lower": _case("lower"), "upper": _case("upper")}                               # (a spread's too)
+ONE_ARG = ("int", "float", "str", "json", "lower", "upper")       # the helpers of one value
 SPREAD = "..."                         # a handler's key whose object's fields each set the item's field of that name
 ARITY = {"set": (1, 1), "add": (1, 1), "min": (1, 1), "max": (1, 1), "append": (1, 2), "union": (1, 1), "remove": (1, 1),
          "merge": (1, 1), "first": (1, 1), "unset": (0, 0), "count": (0, 1), "mean": (1, 1), "variance": (1, 1),
@@ -323,7 +378,8 @@ def _check(n, fns: dict, names, top: bool = False) -> None:
     elif isinstance(n, ast.Attribute):
         if n.attr.startswith("_"):
             raise BadExpr(f".{n.attr}: a name starting with _ is not allowed")
-        if not isinstance(n.value, (ast.Name, ast.Attribute, ast.Subscript)):
+        if not isinstance(n.value, (ast.Name, ast.Attribute, ast.Subscript)) and not (
+                isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Name) and n.value.func.id in HELPERS):
             raise BadExpr(f".{n.attr}: dotted access reads into the event's parts (data.detail.state), nothing else")
         _check(n.value, fns, names)
     elif isinstance(n, ast.Subscript):
@@ -379,6 +435,8 @@ def _check(n, fns: dict, names, top: bool = False) -> None:
                 raise BadExpr(f"{name}(): names are given as text: {name}(data, 'a', 'b')")
             if name == "rename" and (len(n.args) != 1 or any(k.arg is None for k in n.keywords)):
                 raise BadExpr("rename(obj, old='new', ...): the object, then each field's new name")
+            if name in ONE_ARG and len(n.args) != 1:
+                raise BadExpr(f"{name}(x) takes one value")
             for a in (*n.args, *(k.value for k in n.keywords)):
                 _check(a, fns, names)
             return
@@ -460,7 +518,7 @@ def _ev(n, env: dict):
             if m == "get":
                 return obj.get(*args) if isinstance(obj, dict) else None
             return getattr(obj, m)(*args) if isinstance(obj, str) else None
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, AttributeError):
             return None
     if isinstance(n, ast.Call):
         name = n.func.id
@@ -608,7 +666,7 @@ def _by_rule(f: str, x, fields: dict, acc: dict, kind, rule: str):
 SEEN = "~seen"           # acc's key: the latest events' digests (an event delivered twice counts once)
 TIMES = "~t"             # acc's key: each field's event time, as last written (the fold is by event time)
 SEEN_MOST = 256          # the latest events an object remembers, to know one delivered twice
-LATEST_WINS = ("set", "replace", None)
+LATEST_WINS = ("set", "replace", "unset", None)   # newest by event time wins (unset too)
 
 
 def _digest(e: dict) -> str:

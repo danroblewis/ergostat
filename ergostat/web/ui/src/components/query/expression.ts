@@ -13,6 +13,9 @@ export const FUNCTIONS: [string, string][] = [
   ["has", "has('text'): some text of the event contains it"], ["glob", "glob(path, 'a*'): matches the pattern"],
   ["each", "each(list, 'field')"], ["pairs", "pairs(list, 'key', 'value')"], ["pick", "pick(obj, 'a', ...)"],
   ["omit", "omit(obj, 'a', ...)"], ["rename", "rename(obj, old='new')"],
+  ["int", "int(x): a whole number from a number or its text (null if not)"], ["float", "float(x): a number (null if not)"],
+  ["str", "str(x): as text"], ["json", "json(text): the JSON parsed (null if not JSON)"],
+  ["lower", "lower(x): lower case"], ["upper", "upper(x): upper case"],
 ];
 export const METHODS = ["startswith", "endswith", "lower", "upper", "strip", "split", "replace", "get"];
 const WORDS = ["and", "or", "not", "in", "if", "else", "true", "false", "null"];

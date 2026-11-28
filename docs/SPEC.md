@@ -752,7 +752,7 @@ with no finite last pass or a pass stamped in the future; an event log that cann
 ## 3. Names, references and values
 
 **Names** are lowercase letters, digits and `-`, starting with a letter: `inbox`,
-`keep-inbox-short`. Names are unique within each section; the same name may be used in two
+`keep-inbox-short` (a projection's may also hold `_`, `vm_instance`, as an outside log's names often do; 2026-11-28). Names are unique within each section; the same name may be used in two
 sections (a stock and a goal both called `inbox`), but it is discouraged. Parameters (section 7b) are
 named by their bare name in equations, so a parameter may not take a function's name (`min`, `delay1`).
 
@@ -2361,6 +2361,7 @@ projections:
 | `time` | expression | the recorded time | The event's own time (seconds, or ISO 8601 text): the fold is by it (without it, in the record's order), and an expression's `time` is it |
 | `ignore` | list of paths | none | The event's paths known not to matter (`[type, source, data.version]`, each as the expressions write it; a path ignores all under it): the workbench's list, which hides them in its events and leaves them out of the paths left to decide (*The workbench*, below). The fold never reads it; `check` says `bad-ignore` for anything but a list of paths |
 | `fields` | map of field → `{type, fold, description}` | none | What an object is (*Fields*, below). A field's entry may be its type alone (`name: text`) or nothing (`name:`: any value, replace) |
+| `defaults` | map of field → value | none | The values every kind of event under `events:` gives its fields unless the kind gives its own (*Defaults*, below) |
 | `events` | map of kind of event → entry | every event, its data spread in | The kinds of event it reads (*Kinds of event*, below), in order: the first whose `when:` holds takes an event |
 | `show` | list of field names | its declared fields | The columns of the projection's own page (`/PROJECTION`) and of `ergostat item` |
 | `formats` | map of field → format | by extension | How a file a field names is shown: `image`, `markdown`, `code`, `text`, `json`, or `claude-session` (a Claude Code transcript, as the conversation; its lines are also recorded as events, below) |
@@ -2379,7 +2380,9 @@ projections:
 
 **Fields** (`spec/fields.py`). Each field has a type: `text`, `number`, `integer`, `boolean`, `time` (seconds, or ISO
 8601 text), `duration`, `map` or `list of T` (left out: any value); or `values: [a, b, ...]`, the only values it may
-hold (text: `state: {values: [pending, running, done]}`, the states, the first where a new object starts). And a fold, how
+hold (text: `state: {values: [pending, running, done]}`, the states, the first where a new object starts; a state is
+any word, in any case, kept as written and compared exactly: an outside log's `RUNNING` or `Succeeded` is written as it
+comes, and `'running'` is not `RUNNING`; 2026-11-28, before which states were lowercase names). And a fold, how
 values from events combine: `replace` (the default: the newest by event time wins), `first` (the earliest by event
 time), `add`, `min`, `max`, `append` (`append(N)`: only the last N kept), `union` (a set, kept sorted), `merge` (a deep
 merge of objects), `count`, `mean`, `variance`, `stdev`, `rms` (exact, their running state kept beside the item,
@@ -2404,6 +2407,29 @@ field appends; `runs: set(0)` resets a count). An entry may fill only declared f
 spread `"..."` (below), which brings each of an object's fields, declared or not, each folded by its declared rule (an
 undeclared one replaced). A constant a `one of` does not hold is a `check` error (`not-one-of`; `unknown-state` for
 `state`), and one given at fold time refuses the event.
+
+**Defaults** (2026-11-28, from three agents modelling AWS, GCP and Azure logs, each kind repeating the same key
+mappings). `defaults:` under the projection is one kind-less entry, field → value, as a kind's: every kind of event
+under `events:` gives those values unless it gives its own for the field (its own wins, whole: a kind's `last_op:
+set('x')` replaces the default's `last_op: data.eventName`). It is the same as writing each value into every kind:
+`check` reads each kind with its defaults in it (`undeclared-field`, `not-one-of`... said once, at the default's
+line), each kind's key is solved with them (*The key*: a key field given by a default is told by every kind), and the
+workbench's unmapped paths count what they read. A `when:` or `key:` in it is `bad-defaults` (a kind's `when:` is its
+own), as is `defaults:` without `events:`. Chosen over a kind named `"*"` with no `when:`: a kind's name is a name, and
+the first kind whose `when:` holds takes an event, which a kind-less entry would blur.
+
+```yaml
+projections:
+  vm_instance:
+    query: type == 'gcp.audit' and data.protoPayload.serviceName == 'compute.googleapis.com'
+    key: [project, instance]
+    defaults:
+      project: data.resource.labels.project_id
+      instance: data.protoPayload.resourceName.split('/')[-1]
+    events:
+      insert: {when: "data.protoPayload.methodName.endswith('.insert')", state: "'RUNNING'"}
+      stop:   {when: "data.protoPayload.methodName.endswith('.stop')",   state: "'TERMINATED'"}
+```
 
 **The key** (2026-11-27, the owner's decision: the key is said in the projection's own fields, and the software works
 back to the expression that reads it). Each kind's key is, part by part in the key's order, the expression it maps to
@@ -2443,7 +2469,9 @@ event it reads as one kind whose data is spread in.
 
 **The fold is by event time** when the projection names the event's own time (`time:`): a value folded by
 replace (and a state) older than the field's is not taken, so a notification delivered late never undoes a newer one;
-a `first` older than the field's replaces it. Folds that do not depend on order (`add`, `union`, `merge`, `count`,
+a `first` older than the field's replaces it; `unset()` is by event time too (2026-11-28): it takes the field out
+only when it is not older than the field's value, and a value older than the unset is not taken after it. Folds that
+do not depend on order (`add`, `union`, `merge`, `count`,
 `min`, `max`, the aggregates) take every event as it comes. Without `time:`, events fold in the record's order
 (2026-11-27: ergostat's own writers set the recorded time of events they record late, a transcript's lines among
 them, so the recorded time is not an order to fold by). **An event delivered twice** changes an object once: the
@@ -2459,7 +2487,12 @@ nested data (`data.detail.state`) and subscripts for names that are not identifi
 `data.list[0]`, `data.x[-1]`); a missing field reads as null, never an error; quoted text, numbers, `true`/`false`/`null`
 (and `True`/`False`/`None`), lists of values (`x in ['a', 'b']`); arithmetic (`+ - * / // % **`), comparisons (`== !=
 < <= > >= in`, `not in`), `and`, `or`, `not`, `a if c else b`; a value's methods `startswith`, `endswith`, `lower`,
-`upper`, `strip`, `split`, `replace` (of text) and `get` (of an object), each null on null; the helpers `pick(obj,
+`upper`, `strip`, `split`, `replace` (of text) and `get` (of an object), each null on null or on a value of another
+kind (`data.count.lower()` of a number is null); the conversions `int(x)` (a whole number from a number or its text,
+`'42'`, `'4.0'`), `float(x)`, `str(x)` (text: a number as written, `true`/`false`, an object or a list as JSON),
+`json(x)` (JSON text parsed: Azure's `properties.responseBody`, `json(data.properties.responseBody).sku`; an object or
+a list as it is), `lower(x)` and `upper(x)`, each null on null and on what it cannot convert, never an error, and each
+dotted into like a path (`json(x).a.b`); the helpers `pick(obj,
 'a')`, `omit(obj, 'secret')`, `rename(obj, by='started_by')`, `glob(text, 'pattern*')`, `pairs(list, 'key', 'value')`
 (a list of key/value objects as one object: AWS's tags), `has('text')` (some text value of the event, its `type`,
 `key`, `source` or data's at any depth, a list's members too, contains the text, whatever the case; an object's names
@@ -3570,8 +3603,13 @@ At 390 px wide its sections stack, with no sideways scroll.
 **Trying a projection.** A projection is tried before it is written (`spec/trying.py`, one engine behind four front
 ends): its YAML body is compiled in the context of the model as it is (in memory: put in place of the projection, or
 at the end of `projections:` for a new one; the model's errors elsewhere are not the draft's), folded by the same fold
-the item index uses (`items.fold`) over the record's events in the window (the newest 200,000 at most, ergostat's own
-families left out) or over events given, and said as a small report sized for an agent's tokens. Nothing is written:
+the item index uses (`items.fold`) over the record's events, the whole record unless a window is asked for (the
+newest 200,000 at most, ergostat's own families left out), or over events given, and said as a small report sized for
+an agent's tokens. **A window that leaves events out says so** (2026-11-28: an agent's review read 0 events once its
+events were older than the hour it asked for, and nothing said why): `try`'s `events.window`, the review's
+`read.window`, the query's and the kinds' `window`, `{read, of, left_out, record_from, record_to, says}`, `says` the
+words the CLI prints (`read 0 of 2,501 events: since 1h ago; the record spans 3d (leave out since/until for the whole
+record)`), `of` the events the query holds in the whole record; none when the window leaves nothing out. Nothing is written:
 no file, no item index, no model.
 
 - `POST /api/projections/try` with `{name, yaml, since?, until?, events?, expected?, item?, refused?, limit?, system?}`
@@ -3595,18 +3633,23 @@ no file, no item index, no model.
   reads, in a folder of its own, so the projection's page draws a draft with its own panels.
 - `GET /api/events/shape?type=GLOB&since=…&limit=N` (or `draft=ID`: the events it reads): each path into the events
   (`type`, `item`, `source`, `data.a.b`; a list's members `[]`), its types, how often it is there (%), how many values it
-  takes and up to five, trimmed (80 paths at most; the newest 5,000 events by default).
+  takes and up to five, trimmed (80 paths at most; the newest 5,000 events by default); `paths_total` the paths there
+  are and `paths_left` how many were left out. The CLI's and MCP's take `all` (every path), `prefix` (only those at or
+  under a path, `data.detail`) and `examples` (values a path, default 5).
 - `ergostat projection try FILE.yaml [--name N] [--events FILE.jsonl] [--since 7d] [--expected FILE.json] [--item KEY]
   [--refused REASON] [--json]` (FILE holds the body, or `projections: {NAME: …}`), its text a few aligned lines, exit 1
-  when it does not check; `ergostat events shape [--type GLOB] [--since 7d] [--json]`; MCP's `projection_try` and
+  when it does not check; `ergostat events shape [--type GLOB] [--since 7d] [--all] [--prefix PATH] [--examples N]
+  [--json]`; MCP's `projection_try` and
   `events_shape`, with the same parameters. The workbench's answers (below) are commands and tools too, each a thin
   call to the same function, its text a few lines and `--json` the answer whole: `ergostat events query QUERY
   [--limit N] [--sample N] [--compare QUERY] [--since 7d] [--json]` (`/api/events/query`; `--limit` default 5),
-  `ergostat events kinds QUERY [--taken WHEN ...] [--json]` (`/api/events/kinds`) and `ergostat projection review
-  FILE.yaml [--name N] [--item KEY] [--events FILE.jsonl] [--expected FILE.json] [--since 7d] [--json]`
-  (`/api/projections/review`, exit 1 when it does not check); MCP's `events_query` (limit default 5),
-  `events_kinds` and `projection_review` (each residual group's whole events cut to 2 and the objects' keys to 20
-  unless `whole: true`).
+  `ergostat events kinds QUERY [--taken WHEN ...] [--offset N] [--limit N] [--all] [--json]` (`/api/events/kinds`,
+  ten kinds a page) and `ergostat projection review FILE.yaml [--name N] [--item KEY] [--state S[,S]] [--where EXPR]
+  [--list-limit N] [--width N] [--events FILE.jsonl] [--expected FILE.json] [--since 7d] [--json]`
+  (`/api/projections/review`, exit 1 when it does not check; every value and key said whole unless `--width` cuts
+  them); MCP's `events_query` (limit default 5), `events_kinds` (`offset`, `limit`, `all`) and `projection_review`
+  (`state`, `where`, `limit`, `width`; each residual group's whole events cut to 2 and the objects' keys to 20 unless
+  `whole: true`). Each reads the whole record unless `since`/`until` (`--since`/`--at`) say otherwise.
 - On the projection's page, **Edit** is the workbench (below): the body as written (its `dashboards:` left out, kept
   on Save) in the code editor beside its steps (YAML, check's errors on their lines, tried as it changes, the page's
   panels drawing the draft's items). **Save** writes the definition into the model where it is defined (a new one:
@@ -3663,20 +3706,29 @@ characters: a scan, capped at 50,000) 402 ms; the other queries' times unchanged
 **The workbench** (`spec/workbench.py`; the page is built on these answers, an agent uses them the same way; every list
 capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 transitions, 200 timeline steps):
 
-- `POST /api/events/kinds {query, since?, until?, events?, taken?}`: the kinds of event the query's result holds,
+- `POST /api/events/kinds {query, since?, until?, events?, taken?, offset?, limit?, all?}`: the kinds of event the
+  query's result holds,
   suggested from the data. Given `taken` (the `when:`s of the kinds accepted, in order), only the events none of them
   takes are suggested from (`untaken` counts them), and each suggestion's `count` is what it would take after the
   accepted kinds and the suggestions before it (the first whose `when:` holds takes an event): one that would take
-  none is left out, so accepting every suggestion leaves nothing to suggest. The result is grouped by shape: its type, then the one or two data paths whose values best tell the
-  events' shapes apart (present in nine in ten of them, 2 to 20 values; an id or a time never), or, for a group
-  nothing splits, the paths all its events share whose names say what happened (`eventName`, `detail-type`, `type`,
-  `action`, `status`, ...). `{query, read: {source, indexed, exact, scanned, ...}, count, kinds: [{name, count, when,
-  shape, paths, samples}], kinds_left?, took_s}`: `when` is the suggested `when:` (`data['detail-type'] == 'AWS API
+  none is left out, so accepting every suggestion leaves nothing to suggest. The result is grouped by shape: its type,
+  then the one or two data paths whose values best tell the events apart (present in nine in ten of them, 2 to 20
+  values), or, for a group nothing splits, the paths all its events share whose names say what happened
+  (`eventName`, `detail-type`, `type`, `action`, `status`, ...). **The splitting path is the operation's** where
+  there is one (2026-11-28: agents on AWS, GCP and Azure logs were offered splits by a caller's IP and a result type):
+  a path naming what happened (`eventName`, `methodName`, `operationName` and its `value`, `detail-type`,
+  `eventType`, `action`, `operation`...), its values verb- or name-like, splits even events of one shape, by up to
+  200 values; a path incidental to it is lowered (an IP address, an id, a time, by its values or its name; a result,
+  status, code or severity once a path naming the operation is there, and always in the second split). Beyond that a
+  path's score is how well its values tell the events' shapes apart. Paged: `limit` kinds (10) from `offset` (0), or
+  `all` (every one, 200 at most); `kinds_total` the kinds suggested, `kinds_left` how many come after the page.
+  `{query, read: {source, indexed, exact, scanned, ...}, count, offset, kinds_total, kinds: [{name, count, when,
+  shape, paths, samples}], kinds_left?, window?, took_s}`: `when` is the suggested `when:` (`data['detail-type'] == 'AWS API
   Call via CloudTrail' and data.detail.eventName == 'RunInstances'`; the type left out when the result has one), `name`
   a name made from its last value, `paths` the data paths every event of it has (30 at most), `samples` two trimmed
   events.
-- `POST /api/projections/review {name, yaml, since?, until?, item?, events?, expected?, compare?, system?}` (`yaml` the
-  draft's body, as `try`'s): the draft compiled in the model (its check errors returned, never raised: `{ok: false,
+- `POST /api/projections/review {name, yaml, since?, until?, item?, events?, expected?, compare?, system?, state?,
+  where?, limit?, width?}` (`yaml` the draft's body, as `try`'s): the draft compiled in the model (its check errors returned, never raised: `{ok: false,
   errors: [{line, message}]}`), its query run by the engine (or the events given), every event it reads folded as the
   item index folds, and:
 
@@ -3699,8 +3751,9 @@ capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 
    unmapped: {count, paths: [{path, events, kinds}], paths_left?, ignored, read},   # what is left to decide
    compared?: {saved, draft, appear, appear_sample, disappear, disappear_sample, change,
                fields: [{field, objects, samples: [{key, saved, draft}]}], saved_read},
-   expected?: (as try's), timeline?: {key, found, state, events, steps: [{id, time, recorded, type, kind,
-               changes: [{field, before, after}], move: {from, to}, refused, unchanged}], fields}, took_s}
+   listed?: {state?, where?, count, objects: [{key, name?, state}], objects_left?},  # with state or where
+   expected?: (as try's), timeline?: {key, found, state, events, order, late, steps: [{id, time, recorded, type,
+               kind, late?, changes: [{field, before, after}], move: {from, to}, refused, unchanged}], fields}, took_s}
   ```
 
   A number's or a time's field has its range and a histogram (a time's bounds as ISO 8601); any other its top values.
@@ -3721,9 +3774,17 @@ capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 
   events and says the objects that appear, disappear, and whose fields change (per field, how many, with samples);
   left out for a new projection or with `compare: false`. `unmapped` is what is left to decide: the paths to values in
   the events each kind took (300 read per kind; its type, source, key and data's; a list a value whole) that no field
-  of that kind (its key fields among them) and no `time:` reads, and that are not in `ignore:` (nor under one), each with how
+  of that kind (its key fields among them), no `when:` of it (what tells its events apart is read; 2026-11-28) and no
+  `time:` reads, and that are not in `ignore:` (nor under one), each with how
   many events have it and which kinds. `timeline` (with `item=KEY`) is that object's events in event
-  time order, which kind took each, each field before → after, a move, a refusal.
+  time order (`order: "event time"`, the fold's: the fold is by event time, so this is the order its values were
+  decided in), which kind took each, each field before → after, a move, a refusal, and `late` on an event that
+  arrived after one of a later event time (`late` at the top: how many); the CLI prints each step's time and `LATE`.
+  `listed` (with `state`, one or several, `a,b`, or `where`, an expression over the folded object: `state`, `key`,
+  `name`, `events` (how many), `fields.F`; `where: "fields.type == 't3.micro' and state != 'terminated'"`) is the
+  objects it holds for, each its key, name and state, sorted by key, `limit` of them (200). Text is said whole
+  (2026-11-28: ids and ARNs cut at 60 characters could not be asked for again); `width` N cuts text past N
+  characters, as the CLI's `--width` cuts its lines.
 - `POST /api/projections/fold {name, yaml, events, system?}`: the objects those events alone make by the draft (at
   most 50 events): `{ok, took: {event id: kind}, remainder, no_key, objects: [{key, state, fields, refused}]}` (`{ok:
   false, errors}` when the draft does not check). The mapping step's record of one sample event.

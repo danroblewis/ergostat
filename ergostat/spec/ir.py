@@ -15,6 +15,8 @@ MACHINE = ("program", "ai", "person", "external")
 FORMATS = ("image", "markdown", "code", "text", "json", "claude-session")   # how a file an item names is shown
 SETPOINT = re.compile(r"^\s*(<=|>=|==|<|>)\s*(-?\d+(?:\.\d+)?)\s*$")
 NAME = re.compile(r"^[a-z][a-z0-9-]*$")
+PROJECTION_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")    # a projection's name: a NAME, or with _ (an outside log's)
+STATE = re.compile(r"^\S(?:.{0,62}\S)?$")             # a state: any case, kept as written, compared exactly
 REF = re.compile(r"^(stock|flow|auxiliary|variable|goal|block)\.([a-z][a-z0-9-]*)(?:\.([a-z][a-z0-9-]*))?$")
 OLD_KIND = {"variable": "auxiliary"}     # what a kind was called before (SPEC §7a): still read, with a finding
 
