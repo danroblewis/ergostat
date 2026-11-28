@@ -51,7 +51,7 @@ LIB_DATA_FLAGS = frozenset({
     "--every", "--limit", "--stand-in", "--answer-after", "--window", "--id-field", "--event", "--event-field",
     "--cursor-field", "--path", "--field", "--changes", "--title", "--cron", "--fail", "--say", "--rise", "--cut",
     "--no-coherence", "--no-extremes", "--mirror", "--position", "--batch-projection", "--states", "--met", "--target", "--min",
-    "--threshold", "--side"})
+    "--threshold", "--side", "--json"})
 # Never: what is run (a command, a renderer), read from outside (a URL, headers naming the environment), where files
 # are written or removed, and the limits on processes, calls, money and time.
 LIB_EXEC_FLAGS = frozenset({
