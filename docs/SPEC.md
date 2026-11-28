@@ -2441,7 +2441,9 @@ nested data (`data.detail.state`) and subscripts for names that are not identifi
 < <= > >= in`, `not in`), `and`, `or`, `not`, `a if c else b`; a value's methods `startswith`, `endswith`, `lower`,
 `upper`, `strip`, `split`, `replace` (of text) and `get` (of an object), each null on null; the helpers `pick(obj,
 'a')`, `omit(obj, 'secret')`, `rename(obj, by='started_by')`, `glob(text, 'pattern*')`, `pairs(list, 'key', 'value')`
-(a list of key/value objects as one object: AWS's tags), and `each(list, 'field')` in a key field's value; and calls to the fold
+(a list of key/value objects as one object: AWS's tags), `has('text')` (some text value of the event, its `type`,
+`key`, `source` or data's at any depth, a list's members too, contains the text, whatever the case; an object's names
+and numbers are never searched; `has(VALUE, 'text')`: some text in VALUE does), and `each(list, 'field')` in a key field's value; and calls to the fold
 functions in a value. Nothing else: no other names, no imports, comprehensions or lambdas. A YAML number, boolean or
 null is a constant on its own (`restarts: 1`). Text is quoted inside the expression (`state: "'done'"`,
 `set('planned')`); a bare word that is none of the names is a `check` error (`bad-expression`: `planned is not a name:
@@ -3593,9 +3595,13 @@ stay fast as the record grows, so it never scans the record per query. An index 
 SQLite, a cache rebuilt from the record when missing or when the record went back) holds every event's row and a
 posting for each value at the paths queries and `when:`s use: the event's `type`, `source` and `key`, and its data's
 paths three levels deep (`data.a`, `data.a.b`, `data.a.b.c`; at most 64 postings an event; a list or an object posted
-as there; text over 100 characters by its first 100). It is caught up from the last indexed `seq` before each answer, a
+as there; text over 100 characters by its first 100), and its text: every text value of the event (`has`'s), lower-cased,
+in an FTS5 table with SQLite's trigram tokenizer (contentless, the event's `seq` its row). It is caught up from the last indexed `seq` before each answer, a
 transaction per 20,000 events, so its upkeep per event is constant. A query is planned over its expression: `path ==
-value`, `path != value`, `path == null`, `path.startswith('text')`, `glob(path, 'pattern')`, a path alone (it is
+value`, `path != value`, `path == null`, `path.startswith('text')`, `glob(path, 'pattern')`, `has('text')` (the
+events whose text holds it as a phrase of trigrams: exact, so `has` alone or with indexed parts reads no event; text
+under three characters the index cannot answer, so `has('i-')` alone is a scan, said; `has(VALUE, 'text')` reads the
+event's candidates and evaluates them), a path alone (it is
 there), `not`, `and` and `or` of them read their candidates from the index (`and` intersects; `or` unions when each
 side can; `not` of an exact set is its complement). When every part is exact (on an indexed path), the candidates are
 the answer and no event is read but those shown; otherwise the expression is evaluated on the candidates (at most
@@ -3621,7 +3627,11 @@ query (`data['detail-type'] == '…State-change…' and data.detail.state == 'ru
 `not` over the whole record (`… and not data.detail.eventName.startswith('Describe')`, 201,000) 65 ms, an indexed
 query whose last part is evaluated (`data.detail.eventName == 'RunInstances' and data.detail.responseElements
 .instancesSet.items[0].instanceType == 't3.micro'`: 7,863 candidates read, 1,585 matched) 70 ms, and a scan
-(`data.detail.state + '' == 'running'`, capped at 50,000 events) 289 ms (medians of five).
+(`data.detail.state + '' == 'running'`, capped at 50,000 events) 289 ms (medians of five). With the text index
+(the same bench, 2026-11-27): built in 13.4 s (61 µs an event; 446 MB), caught up after 1,000 new events in 12 ms (9 µs
+an event); `has('I-…')` of one instance's id (25 events, exact) 1.7 ms, narrowed by `and data.detail.eventName ==
+'RunInstances'` (1, exact) 3.3 ms, `has('ec2')` (every event, 201,000, exact) 36 ms, and `has('i-')` (two
+characters: a scan, capped at 50,000) 402 ms; the other queries' times unchanged.
 
 **The workbench** (`spec/workbench.py`; the page is built on these answers, an agent uses them the same way; every list
 capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 transitions, 200 timeline steps):
@@ -3701,8 +3711,16 @@ capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 
   is kept for the browser tab while editing (sessionStorage, by the projection's name), and a new projection's being new
   by its address, so a reload, a remount or an address whose query changed (which drops the history state) loses no
   work: the page opens again editing it; Save or Cancel forgets it. **1 What it is**: its fields (name, type, values,
-  fold, description). **2 Query**: the query (all of the
-  record, or the last hour, day, 7 or 30 days), its count, what the last change added and dropped, right after it
+  fold, description). **2 Query**: a search box at the top (*Find
+  events containing*: an id, a name, any text typed there is the query's `has('…')` term, put first with the rest
+  narrowing it, changed in place as it is typed, taken out when emptied; the box shows the term the query has), the
+  query (all of the
+  record, or the last hour, day, 7 or 30 days) in the app's CodeMirror editor (`components/query/expression.ts`: the
+  expression language highlighted, its names, text, numbers, functions and paths each drawn their own way, and
+  completed at the cursor: after `data.` or `data.detail.` the names under that path, a name that is not an identifier
+  in bracket form, `data['detail-type']`, and the value methods; inside `data['` the names; after `PATH == '` the
+  values seen there; elsewhere the event's names, the functions and the words; from the newest 20 events shown and
+  `GET /api/events/shape?limit=2000`, the record's newest), its count, what the last change added and dropped, right after it
   what the kinds of event its result holds cover (*8 kinds of event cover 100% of these events · Accept all*; once
   accepted, *All events taken by 8 kinds*), how it was read, and the newest 20 events, folded, each opened to its
   parts, a value clicked narrowing the query by it (`and PATH == VALUE`, `!=`). **3 Kinds of event**: its `events:`

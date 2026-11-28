@@ -166,6 +166,34 @@ def _glob(x, pattern):
     return isinstance(x, str) and isinstance(pattern, str) and fnmatch.fnmatchcase(x, pattern)
 
 
+def strings(v, out: list | None = None, depth: int = 0) -> list:
+    """Every text value in ``v``, nested (an object's values, a list's members; never an object's names)."""
+    out = [] if out is None else out
+    if isinstance(v, str):
+        out.append(v)
+    elif isinstance(v, dict) and depth < 64:
+        for x in v.values():
+            strings(x, out, depth + 1)
+    elif isinstance(v, list) and depth < 64:
+        for x in v:
+            strings(x, out, depth + 1)
+    return out
+
+
+def _has(where, text) -> bool:
+    """``has(TEXT)``: some text value of the event (its type, key, source or data, nested) contains TEXT, whatever
+    the case; ``has(VALUE, TEXT)``: some text in VALUE does."""
+    if not isinstance(text, str):
+        return False
+    t = text.lower()
+    return any(t in s.lower() for s in strings(where))
+
+
+def event_texts(env: dict) -> list:
+    """The text values ``has(TEXT)`` searches: the event's type, key, source and data's."""
+    return strings([env.get("type"), env.get("key"), env.get("source"), env.get("data")])
+
+
 class Each(list):
     """``each(LIST, 'field')`` in a key: the values that name the objects one event applies to (one event, several)."""
 
@@ -222,7 +250,7 @@ def load_functions(root: Path, paths, err) -> tuple[dict, str]:
         for name, fn in vars(mod).items():
             if name.startswith("_") or not inspect.isfunction(fn) or fn.__module__ != mod.__name__:
                 continue
-            if name in BUILTINS or name in HELPERS:
+            if name in BUILTINS or name in HELPERS or name == "has":
                 err(f"functions: {p}: {name} is a built-in fold function ({', '.join(BUILTINS)}); name it something else")
                 continue
             if name in out:
@@ -264,7 +292,7 @@ class Value:
     def __init__(self, text, literal=None, tree=None):
         self.text, self.literal, self.tree = text, literal, tree
         self.call = tree.func.id if isinstance(tree, ast.Call) and isinstance(tree.func, ast.Name) and \
-            tree.func.id not in HELPERS and tree.func.id != "each" else None   # its fold function, at the top
+            tree.func.id not in HELPERS and tree.func.id not in ("each", "has") else None   # its fold function, at the top
 
     def __repr__(self):
         return f"Value({self.text!r})"
@@ -338,6 +366,12 @@ def _check(n, fns: dict, names, top: bool = False) -> None:
         if not isinstance(n.func, ast.Name):
             raise BadExpr("only fold functions are called, by name: add(1), append(data.reason, 20)")
         name = n.func.id
+        if name == "has":
+            if n.keywords or not 1 <= len(n.args) <= 2 or any(isinstance(a, ast.Starred) for a in n.args):
+                raise BadExpr("has('text'): some text of the event contains it (has(VALUE, 'text'): some text in VALUE)")
+            for a in n.args:
+                _check(a, fns, names)
+            return
         if name in HELPERS:
             if any(isinstance(a, ast.Starred) for a in n.args) or not n.args:
                 raise BadExpr(f"{name}(obj, ...): the object first, then the names")
@@ -433,6 +467,8 @@ def _ev(n, env: dict):
         args = [_ev(a, env) for a in n.args]
         if name == "each":
             return _each(*args)
+        if name == "has":
+            return _has(event_texts(env), args[0]) if len(args) == 1 else _has(args[0], args[1])
         if name in HELPERS:
             return HELPERS[name](*args, **{k.arg: _ev(k.value, env) for k in n.keywords})
         fn = BUILTINS.get(name) or env["functions"][name]

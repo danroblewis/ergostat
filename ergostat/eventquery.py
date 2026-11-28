@@ -6,7 +6,8 @@ A query is an expression of the event, in the handlers' language (``spec/handler
 event's ``type``, ``source`` and ``key``, and its data's paths to three levels deep, at most ``POSTINGS`` of them), kept
 up to date as events are recorded (caught up from the record's last indexed ``seq`` before each answer: a constant cost
 per event). A query is planned over its expression: ``path == value``, ``path != value``, ``path.startswith(text)``,
-``glob(path, pattern)``, ``not``, ``and`` and ``or`` of them read their candidates from the index; a candidate set
+``glob(path, pattern)``, ``has(text)`` (from a trigram index of each event's text values, lower-cased: exact for text
+of three characters or more), ``not``, ``and`` and ``or`` of them read their candidates from the index; a candidate set
 that the index answers exactly (every part of the expression one of those, on an indexed path) needs no event read but
 the ones shown; otherwise the expression is evaluated on the candidates (at most ``EVALUATE_MOST``, the newest first).
 A query no part of which the index can answer is a scan (``scanned: true``), of the newest ``SCAN_MOST`` events.
@@ -25,7 +26,7 @@ import time
 from pathlib import Path
 
 INDEX = "eventquery.db"
-VERSION = 1
+VERSION = 2
 POSTINGS = 64              # the most postings one event writes (its paths beyond are not indexed)
 DEPTH = 3                  # data paths indexed: data.a, data.a.b, data.a.b.c
 TEXT_MOST = 100            # text longer than this is indexed by its first TEXT_MOST characters (as a prefix)
@@ -40,7 +41,10 @@ create table if not exists ev (seq integer primary key, id text, time real, type
 create index if not exists ev_time on ev(time);
 create table if not exists post (p integer not null, v text not null, seq integer not null);
 create index if not exists post_pv on post(p, v, seq);
+create virtual table if not exists txt using fts5(t, tokenize='trigram case_sensitive 1', content='', detail=full);
 """
+SEP = "\x1f"               # between an event's texts in its text row (a searched text never holds it: no match spans two)
+RESET = "delete from ev; delete from post; delete from paths; delete from meta; insert into txt(txt) values('delete-all');"
 _LOCK = threading.RLock()   # also held through a query: one connection, shared by the server's threads
 
 
@@ -86,6 +90,13 @@ def postings(e: dict) -> list[tuple[str, str]]:
     return out
 
 
+def text_of(e: dict) -> str:
+    """An event's text row, what ``has(TEXT)`` is answered from: its text values (type, key, source, data's,
+    nested), lower-cased, SEP between them."""
+    from .spec.handlers import event_texts
+    return SEP.join(t.replace(SEP, " ").lower() for t in event_texts(_env(e)))
+
+
 # ---- the index
 
 def state_dir(events) -> Path | None:
@@ -121,11 +132,11 @@ class Index:
         events taken out) rebuilds it."""
         gen = getattr(self.events, "generation", lambda: 0)()
         if self._meta("version") != VERSION or self._meta("generation", gen) != gen:
-            self.db.executescript("delete from ev; delete from post; delete from paths; delete from meta;")
+            self.db.executescript(RESET)
             self._paths = {}
         last = int(self._meta("last", 0) or 0)
         if last > self.events.last_seq():
-            self.db.executescript("delete from ev; delete from post; delete from paths; delete from meta;")
+            self.db.executescript(RESET)
             self._paths, last = {}, 0
         n = 0
         while True:
@@ -143,6 +154,7 @@ class Index:
                     for p, v in postings(e):
                         rows.append((self._pid(p), v, e["seq"]))
                 self.db.executemany("insert into post(p, v, seq) values (?,?,?)", rows)
+                self.db.executemany("insert into txt(rowid, t) values (?, ?)", [(e["seq"], text_of(e)) for e in evs])
                 last = evs[-1]["seq"]
                 self.db.executemany("insert or replace into meta(key, value) values (?, ?)",
                                     [("last", last), ("version", VERSION), ("generation", gen)])
@@ -173,6 +185,14 @@ class Index:
             out |= {r[0] for r in self.db.execute("select seq from post where p = ? and v >= ? and v < ?",
                                                   (p, lo, lo + "\U0010ffff"))}
         return out
+
+    def containing(self, text: str) -> set[int] | None:
+        """The events some text of which contains ``text`` (lower-cased), from the trigram index: exact for text of
+        three characters or more; None for shorter (the index cannot say)."""
+        t = text.lower()
+        if len(t) < 3 or SEP in t:
+            return None
+        return {r[0] for r in self.db.execute("select rowid from txt where txt match ?", ('"' + t.replace('"', '""') + '"',))}
 
     def present(self, path: str) -> set[int]:
         p = self._pid(path, make=False)
@@ -327,6 +347,13 @@ class Plan:
                 if p is not None and ok and isinstance(c, str):
                     self.used.append(p)
                     return self.ix.prefixed(p, c[:TEXT_MOST]), len(c) <= TEXT_MOST
+            if isinstance(f, ast.Name) and f.id == "has" and n.args:
+                ok, c = _const(n.args[-1])
+                if ok and isinstance(c, str):
+                    got = self.ix.containing(c)
+                    if got is not None:
+                        self.used.append("text")
+                        return got, len(n.args) == 1           # has(VALUE, 'x'): the event's text has it; VALUE's, evaluated
             if isinstance(f, ast.Name) and f.id == "glob" and len(n.args) == 2:
                 p = path_of(n.args[0])
                 ok, c = _const(n.args[1])

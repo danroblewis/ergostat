@@ -80,7 +80,12 @@ def main():
         out["catch_up_1000_ms"] = round(1000 * (time.perf_counter() - t0), 1)
         out["upkeep_us_per_event_live"] = round(1e6 * (ix.upkeep["seconds"] - before["seconds"]) /
                                                 max(1, ix.upkeep["events"] - before["events"]), 1)
-        for name, q in QUERIES.items():
+        import re
+        some = next(m.group(0) for e in ev.query(n=2000) for m in [re.search(r"i-[0-9a-f]{8,}", json.dumps(e["data"]))] if m)
+        qs = {**QUERIES, "has (an id)": f"has('{some.upper()}')",
+              "has (an id), narrowed": f"has('{some}') and data.detail.eventName == 'RunInstances'",
+              "has (common text)": "has('ec2')", "has (two characters: a scan)": "has('i-')"}
+        for name, q in qs.items():
             r = eventquery.run(ev, {"query": q, "limit": 50})
             ms = 1000 * timed(lambda q=q: eventquery.run(ev, {"query": q, "limit": 50}))
             out[name] = {"ms": round(ms, 1), "total": r["total"], "indexed": r["indexed"], "exact": r.get("exact"),

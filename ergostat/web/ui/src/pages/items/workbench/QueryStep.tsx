@@ -22,6 +22,31 @@ export interface QueryAnswer {
   took_ms: number;
 }
 
+const HAS = /\bhas\(\s*('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")\s*\)/;   // the query's first has('text') of the whole event
+
+/** The text the query's has('…') term searches for ("" when it has none). */
+export function searchedText(query: string): string {
+  const m = HAS.exec(query);
+  if (!m) return "";
+  return m[1].slice(1, -1).replace(/\\(.)/g, "$1");
+}
+
+/** The query with its has('…') term searching for `text` instead: put first when it had none (the rest narrowing it),
+    taken out (and the `and` with it) when `text` is empty. */
+export function withSearch(query: string, text: string): string {
+  const q = query.trim();
+  const term = text ? `has(${literal(text)})` : "";
+  if (HAS.test(q)) {
+    if (term) return q.replace(HAS, () => term);
+    for (const re of [new RegExp(`^${HAS.source}\\s+and\\s+`), new RegExp(`\\s+and\\s+${HAS.source}`), HAS]) {
+      if (re.test(q)) return q.replace(re, "").trim();
+    }
+  }
+  if (!term) return q;
+  if (!q) return term;
+  return /\bor\b/.test(q) ? `${term} and (${q})` : `${term} and ${q}`;
+}
+
 /** How the answer was had, said plainly. */
 export function howRead(a: { indexed?: boolean; exact?: boolean; scanned?: boolean; candidates?: number; read?: number;
   capped?: boolean; sampled?: boolean; sample_of?: number; record?: number; source?: string }): string {
@@ -64,17 +89,23 @@ export function QueryStep({ query, onQuery, since, onSince, editable, sugg, kind
   if (a && shownQ.current !== a.query) shownQ.current = a.query;
   const [picked, setPicked] = useState<{ path: JsonPath; value: unknown } | null>(null);
   const expr = picked ? pathExpr(picked.path) : "";
+  const searched = searchedText(query);
 
   return (
     <>
+      <label className="wb-search">Find events containing{" "}
+        <input type="search" value={searched} disabled={!editable} spellCheck={false} data-testid="query-search"
+          placeholder="an id, a name, any text (has('…') in the query)" aria-label="Find events containing"
+          onChange={(e) => onQuery(withSearch(query, e.target.value))} />
+      </label>
       <div className="wb-row">
         <div className="wb-grow">
-          <QueryEditor source="expression" value={query} onChange={(q) => editable && onQuery(q)} label="The query"
+          <QueryEditor source="expression" value={query} onChange={(q) => editable && onQuery(q)} label="The query" events={a?.events}
             placeholder="data.source == 'aws.ec2' and not data.detail.eventName.startswith('Describe')" />
         </div>
         <label className="wb-since">Over <Select value={since} onChange={(e) => onSince(e.target.value)} options={SPANS} aria-label="Over" /></label>
       </div>
-      {!query.trim() ? <p className="muted">Type a query: an expression of the event (<code>type</code>, <code>key</code>, <code>source</code>, <code>data.a.b</code>) that holds for the events it reads.</p>
+      {!query.trim() ? <p className="muted">Find the events containing an id above, or type a query: an expression of the event (<code>type</code>, <code>key</code>, <code>source</code>, <code>data.a.b</code>, <code>has('text')</code>) that holds for the events it reads; then narrow it.</p>
         : got.error ? <p className="note lvl-error" role="alert">{got.error}</p> : null}
       {a && query.trim() && (
         <>

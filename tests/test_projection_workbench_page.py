@@ -21,6 +21,8 @@ there to map until each is fixed.
 
 from __future__ import annotations
 
+import json
+import re
 import textwrap
 import time
 from pathlib import Path
@@ -605,5 +607,52 @@ def test_no_key_refused_and_a_split_open_their_events_in_the_mapping_until_fixed
     pg.keyboard.press("Enter")
     reboot.locator("[data-testid=opened-reboot-call]", has_text="✓ fixed").wait_for(timeout=WAIT)
     unexplained_has(pg, "possible splits", False)
+    assert settled(pg) == []
+    pg.close()
+
+
+# ---- the Query step's search box and its editor's completion
+
+def test_the_search_box_sets_a_has_term_and_the_query_box_completes_paths_and_values(browser, served):
+    p, url = served
+    some = next(m.group(0) for e in p.events.query(n=500) for m in [re.search(r"i-[0-9a-f]{8,}", json.dumps(e["data"]))] if m)
+    pg = opened(browser, url + "/goals")
+    pg.hover("#nav")
+    pg.get_by_role("button", name="New projection").click()
+    pg.get_by_label("The new projection's name").fill("search")
+    pg.keyboard.press("Enter")
+    pg.wait_for_url("**/search", timeout=WAIT)
+    pg.locator("[data-step='1'] .wb-step-head button").click()        # the Query step opened
+    query_box(pg).wait_for(timeout=WAIT)
+    # an id typed in the search box is the query's has('…') term (first, the rest narrowing it), from the index
+    query_box(pg).fill("")
+    pg.get_by_test_id("query-search").fill(some.upper())
+    pg.wait_for_function("(t) => document.querySelector(\"[data-step='1'] .cm-content\").textContent.includes(t)",
+                         arg=f"has('{some.upper()}')", timeout=WAIT)
+    pg.wait_for_function("() => +document.querySelector('[data-testid=query-total]')?.textContent.replace(/,/g, '') > 0", timeout=WAIT)
+    total = number(pg, "query-total")
+    assert "exactly" in pg.get_by_test_id("query-how").inner_text()
+    # narrowed in the query box, the search box keeps its text; changed there, the term changes and the rest stays
+    query_box(pg).click()
+    pg.keyboard.press("End")
+    pg.keyboard.type(" and data.det", delay=40)
+    pg.wait_for_function("() => document.querySelector('.cm-tooltip-autocomplete li[aria-selected]')?.textContent.startsWith('.detail')",
+                         timeout=WAIT)                     # the paths under data, a dotted name before a bracketed one
+    assert "['detail-type']" in pg.locator(".cm-tooltip-autocomplete").inner_text()
+    pg.wait_for_timeout(300)                               # (the popup settled: Enter takes the one selected)
+    pg.keyboard.press("Enter")
+    pg.wait_for_function("() => document.querySelector(\"[data-step='1'] .cm-content\").textContent.endsWith('data.detail')", timeout=WAIT)
+    pg.keyboard.type(".eventName == '", delay=40)
+    pg.wait_for_function("() => /RunInstances|CreateTags|DescribeInstances/.test(document.querySelector('.cm-tooltip-autocomplete')?.textContent || '')",
+                         timeout=WAIT)
+    pg.keyboard.press("Escape")
+    query_box(pg).fill(f"has('{some}') and data['detail-type'] == 'AWS API Call via CloudTrail'")
+    pg.wait_for_function(f"() => +document.querySelector('[data-testid=query-total]').textContent.replace(/,/g, '') < {total}", timeout=WAIT)
+    assert pg.get_by_test_id("query-search").input_value() == some
+    pg.get_by_test_id("query-search").fill("")
+    pg.wait_for_function("() => document.querySelector(\"[data-step='1'] .cm-content\").textContent"
+                         " === \"data['detail-type'] == 'AWS API Call via CloudTrail'\"", timeout=WAIT)
+    # the query is drawn highlighted: its strings and names in their own classes
+    assert query_box(pg).locator(".tok-string").count() >= 1 and query_box(pg).locator(".tok-typeName").count() >= 1
     assert settled(pg) == []
     pg.close()

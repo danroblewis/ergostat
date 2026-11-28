@@ -10,26 +10,30 @@ import { yaml } from "@codemirror/lang-yaml";
 import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { PromQLExtension } from "@prometheus-io/codemirror-promql";
 import { suggestClient } from "./promqlClient";
+import { addEvents, addShape, emptyShape, expressionCompletion, expressionLanguage, type Shape } from "./expression";
 import type { CodeEditorProps } from "./types";
 
 /* A query's text in CodeMirror 6: highlighted (lezer's tokens, drawn as tok-* classes by query-editor.css from the
    page's tokens) and completed at the cursor, a popup the keyboard moves through (arrows, Enter or Tab to take one,
    Escape to close it). SQL completes the views the SQL source reads and their columns (/api/query/fields lists them)
    and SQL's keywords; PromQL is the Prometheus project's own language package, its metric names, label names and
-   label values asked of the source (/api/query/suggest), its functions and keywords its own. Loaded lazily
+   label values asked of the source (/api/query/suggest), its functions and keywords its own. An expression of the
+   event (expression.ts) completes the paths and values of the events it is given and the record's shape. Loaded lazily
    (index.tsx), so the rest of the page does not carry it. */
 
-function language(source: CodeEditorProps["source"], views: Record<string, string[]> | undefined): Extension {
+function language(source: CodeEditorProps["source"], views: Record<string, string[]> | undefined, shape?: () => Shape): Extension {
   if (source === "sql") return sql({ dialect: SQLite, schema: views || {}, upperCaseKeywords: false });
   if (source === "yaml") return [yaml(), lintGutter()];       // a projection's definition (its check errors on their lines)
-  if (source === "expression") return [];                     // an expression of the event (a projection's query): plain text
+  if (source === "expression") {                              // an expression of the event (a projection's query)
+    return [expressionLanguage, expressionLanguage.data.of({ autocomplete: expressionCompletion(shape || emptyShape) })];
+  }
   return new PromQLExtension().setComplete({ remote: suggestClient(source) }).asExtension();
 }
 
 // a function's name (PromQL's rate, sum...) a class of its own: classHighlighter calls it a variable
 const functions = tagHighlighter([{ tag: tags.function(tags.variableName), class: "tok-function" }]);
 
-export default function CodeEditor({ source, value, onChange, views, label, placeholder, problems }: CodeEditorProps) {
+export default function CodeEditor({ source, value, onChange, views, label, placeholder, problems, events, shape }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const lang = useRef(new Compartment());
@@ -37,6 +41,13 @@ export default function CodeEditor({ source, value, onChange, views, label, plac
   changed.current = onChange;
   // a text set from outside is not said back: said back, it would undo an edit made from outside in the same moment
   const outside = useRef(false);
+  const known = useRef<Shape>(emptyShape());          // what an expression completes, as it is now
+  useEffect(() => {
+    const sh = emptyShape();
+    if (events) addEvents(sh, events);
+    if (shape) addShape(sh, shape);
+    known.current = sh;
+  }, [events, shape]);
 
   useEffect(() => {
     const v = new EditorView({
@@ -48,7 +59,7 @@ export default function CodeEditor({ source, value, onChange, views, label, plac
           autocompletion({ activateOnTyping: true, icons: false }),
           keymap.of([{ key: "Tab", run: acceptCompletion }, ...closeBracketsKeymap, ...completionKeymap, ...historyKeymap, ...defaultKeymap]),
           syntaxHighlighting(functions), syntaxHighlighting(classHighlighter),
-          lang.current.of(language(source, views)),
+          lang.current.of(language(source, views, () => known.current)),
           EditorView.lineWrapping,
           EditorView.contentAttributes.of({ "aria-label": label || `${source} query`, spellcheck: "false" }),
           placeholder ? placeholderText(placeholder) : [],

@@ -331,6 +331,41 @@ def test_indexed_and_scanned_answers_are_the_same(tmp_path):
     assert since["total"] == sum(1 for e in a["events"] if e["time"] >= T0 + 100)
 
 
+def test_has_finds_the_events_containing_a_text_anywhere(tmp_path):
+    p = project(tmp_path)
+    p.events.add("x.made", data={"a": {"b": ["zz I-ABC1 q"]}, "n": 1}, at=T0)        # nested in a list, upper case
+    p.events.add("y.seen", item="i-abc1", data={}, at=T0 + 1)                        # in the key
+    p.events.add("z.other", source="i-abc1-src", data={"note": "nothing"}, at=T0 + 2)  # in the source
+    p.events.add("w.none", data={"i-abc1": 5, "x": 12345}, at=T0 + 3)                # a name, a number: never searched
+
+    def ask(q):
+        return eventquery.run(p.events, {"query": q, "limit": 500})
+    a = ask("has('i-abc1')")
+    assert sorted(e["type"] for e in a["events"]) == ["x.made", "y.seen", "z.other"]
+    assert a["indexed"] and a["exact"] and a["read"] == 0 and a["paths"] == ["text"]
+    assert ask("has('I-aBc1')")["total"] == 3                                        # whatever the case
+    both = ask("has('i-abc1') and type == 'y.seen'")
+    assert both["total"] == 1 and both["exact"]
+    assert ask("not has('abc1')")["total"] == 1
+    assert ask("has(data.a, 'abc')")["total"] == 1                                    # in one value: evaluated
+    assert ask("has('i-')")["scanned"] and ask("has('i-')")["total"] == 3            # under three letters: a scan
+    assert ask("has('zz i-abc1 q')")["total"] == 1 and ask("has('q\x1fi')")["total"] == 0
+    with pytest.raises(eventquery.QueryError):
+        ask("has()")
+
+
+def test_has_from_the_index_equals_a_scan(tmp_path):
+    p = project(tmp_path)
+    delivered, _ = ec2(seed=4, instances=8, days=2)
+    recorded(p, delivered)
+    some = re.search(r"i-[0-9a-f]{8,}", json.dumps(delivered[len(delivered) // 2])).group(0)
+    for text in (some, some.upper()[:6], "running", "RunInst", "us-east"):
+        a = eventquery.run(p.events, {"query": f"has('{text}')", "limit": 500})
+        b = eventquery.run(p.events, {"query": f"has('{text}') == (1 == 1)", "limit": 500})   # no part indexed: a scan
+        assert a["exact"] and b["scanned"] and not b.get("capped")
+        assert a["total"] == b["total"] > 0 and [e["id"] for e in a["events"]] == [e["id"] for e in b["events"]], text
+
+
 def test_the_index_follows_the_record(tmp_path):
     p = project(tmp_path)
     p.events.add("x.made", data={"a": {"b": 1}}, at=T0)
