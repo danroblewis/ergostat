@@ -276,13 +276,17 @@ def cmd_measure(args) -> int:
     p = open_project(args)
     _spec(p)
     if args.name:
+        why = None
         try:
-            v = ms.measure(p, args.name)
+            if args.name == "ergostat.model.fit":           # its reason, when it has none: what would make it measurable
+                v, why = ms.fit_why(p)
+            else:
+                v = ms.measure(p, args.name)
         except ms.MeasureError as e:
             print(e, file=sys.stderr)
             return 2
         if v is None:
-            print(f"{args.name}: no value yet (too little record to say)", file=sys.stderr)
+            print(f"{args.name}: no value yet ({why or 'too little record to say'})", file=sys.stderr)
             return 1
         print(f"{v:.6g}")
         return 0
