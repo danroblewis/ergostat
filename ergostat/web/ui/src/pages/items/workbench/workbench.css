@@ -90,3 +90,12 @@ li.jv-ignored, .jv-val.jv-ignored { opacity: 0.5; text-decoration: line-through;
 .wb-newkey input { width: 10em; }
 .wb-browse { align-items: center; margin: var(--sp-1) 0; }
 .wb-browse input { min-width: 8em; }
+
+/* a residual group opened in the mapping step (opened.tsx): its banner, the key parts and fields it is about, the value refused */
+.wb-open { margin: var(--sp-1) 0; padding: var(--sp-1) var(--sp-2); background: var(--warn-wash); border-radius: var(--radius); }
+.wb-open.wb-open-fixed { background: var(--accent-wash); }
+.wb-open-fixed strong { color: var(--accent); }
+.wb-solved .wb-hl, .wb-table tr.wb-hl > th { background: var(--warn-wash); border-radius: var(--radius); }
+.wb-sample .jv-val.jv-flag { background: var(--warn-wash); border-color: var(--warn); }
+.jv-flagged { color: var(--warn); font-size: var(--text-sm); }
+.wb-setpoint button.ghost { padding: 0; text-decoration: underline dotted; text-underline-offset: var(--sp-0); }

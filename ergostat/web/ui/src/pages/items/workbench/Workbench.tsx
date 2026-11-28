@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QueryEditor } from "../../../components/query";
 import { useSend } from "../../../hooks/useSend";
 import { keptGet, keptSet, stepsKey } from "../../../lib/kept";
@@ -9,6 +9,7 @@ import { QueryStep, SPANS } from "./QueryStep";
 import { ReviewStep, SidePanel, unexplained } from "./ReviewStep";
 import { KeySide, WhatStep } from "./WhatStep";
 import { n, Step, type QEvent } from "./common";
+import { liveOf, noKeyOf, openFirst, refusedOf, splitOf, type Live, type Opened } from "./opened";
 import "./workbench.css";
 
 /* The projection workbench (docs/roadmap/projection-workbench.md; SPEC §5a, *The workbench*), the projection's page in
@@ -48,6 +49,32 @@ export function Workbench({ name, system, text, setText, creating, problems }: {
   const r = review.data;
   const left = r?.ok ? unexplained(r) : [];
 
+  // a residual group opened in the mapping step (opened.tsx): followed through each review until it is fixed; a review
+  // of a draft that does not check (or none yet) leaves it as it last was
+  const [opened, setOpened] = useState<Opened | null>(null);
+  const tokens = useRef(0);
+  const lastLive = useRef<Live | null>(null);
+  const live = useMemo(() => (opened ? (r?.ok ? liveOf(r, opened) : lastLive.current) : null), [r, opened]);
+  lastLive.current = live;
+  const openGroup = (o: Opened | null) => {
+    if (!o) return;
+    setOpened(o);
+    setOpen((s) => new Set([...s, 4]));
+  };
+  const token = () => ++tokens.current;
+  const openPart = (w: string) => {
+    if (w === "remainder") {
+      setOpen((s) => new Set([...s, 3]));
+      window.setTimeout(() => document.getElementById("wb-kinds-h")?.scrollIntoView({ block: "start", behavior: "smooth" }), 50);
+      return;
+    }
+    const what = w === "no key" ? "no_key" : w === "refused" ? "refused" : w === "possible splits" ? "split" : null;
+    if (what) openGroup(openFirst(r, what, token()));
+  };
+  const opens = (w: string) => ["remainder", "no key", "refused", "possible splits"].includes(w);
+  const onOpen = (what: "no_key" | "refused" | "split", g: any) =>
+    openGroup(what === "no_key" ? noKeyOf(g, token()) : what === "refused" ? refusedOf(g, token()) : splitOf(g, token()));
+
   // the kinds of event the query's result holds, of the events no accepted kind takes (none that would take nothing)
   const whens = draft.kinds.map((k) => k.when).join("\n");
   const suggBody = useMemo(() => (draft.query.trim()
@@ -82,7 +109,11 @@ export function Workbench({ name, system, text, setText, creating, problems }: {
           {!r ? <span className="muted">{review.busy ? "Reviewing…" : "Not reviewed yet."}</span>
             : !r.ok ? <span className="lvl-error">The draft does not check: see the review.</span>
             : left.length === 0 ? <strong>✓ Nothing unexplained.</strong>
-            : <><span className="lvl-warn">Unexplained:</span> {left.map(([w, c]) => `${n(c)} ${w}`).join(" · ")}</>}
+            : <><span className="lvl-warn">Unexplained:</span> {left.map(([w, c], i) => (
+              <span key={w}>{i > 0 && " · "}{opens(w)
+                ? <button type="button" className="ghost" title="Open these events to map them" onClick={() => openPart(w)}>{n(c)} {w}</button>
+                : `${n(c)} ${w}`}</span>
+            ))}</>}
           {since && <span className="muted small"> (over {SPANS.find((s) => s.value === since)?.label})</span>}
         </p>
         <Step no={1} id="wb-what" title="What it is" open={open.has(1)} onToggle={() => toggle(1)}
@@ -103,7 +134,8 @@ export function Workbench({ name, system, text, setText, creating, problems }: {
         </Step>
         <Step no={4} id="wb-mapping" title="Mapping" open={open.has(4)} onToggle={() => toggle(4)}
           said={nUnmapped ? `${n(nUnmapped)} path${nUnmapped === 1 ? "" : "s"} left to decide` : undefined}>
-          <MappingStep draft={draft} ed={ed} editable={editable} fold={fold} />
+          <MappingStep draft={draft} ed={ed} editable={editable} fold={fold}
+            opened={opened ? { o: opened, live, onUsual: () => setOpened(null) } : null} />
         </Step>
         <Step no={5} id="wb-review" title="Review" open={open.has(5)} onToggle={() => toggle(5)}
           said={r?.ok ? `${n(r.objects.count)} objects` : undefined}>
@@ -117,7 +149,7 @@ export function Workbench({ name, system, text, setText, creating, problems }: {
         </div>
       </div>
       <aside className="wb-side" aria-label="The draft's objects">
-        <SidePanel r={r} item={item} onItem={setItem} keyPart={<KeySide draft={draft} ed={ed} editable={editable} />} />
+        <SidePanel r={r} item={item} onItem={setItem} onOpen={onOpen} keyPart={<KeySide draft={draft} ed={ed} editable={editable} />} />
       </aside>
     </section>
   );

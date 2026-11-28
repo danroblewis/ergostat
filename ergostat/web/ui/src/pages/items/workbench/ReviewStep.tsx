@@ -221,10 +221,18 @@ function Objects({ r, item, onItem }: { r: any; item: string; onItem: (k: string
 
 /** The panel on the right, beside the steps: its key (set before any mapping), its objects one at a time, the
     lifecycles and each field's distribution, and the residual at the bottom (only what is not 0; all 0, one check). */
-export function SidePanel({ r, item, onItem, keyPart }: { r: any; item: string; onItem: (k: string) => void; keyPart: ReactNode }) {
+export function SidePanel({ r, item, onItem, keyPart, onOpen }: {
+  r: any; item: string; onItem: (k: string) => void; keyPart: ReactNode;
+  /** a residual group opened in the mapping step, its events there to map */
+  onOpen?: (what: "no_key" | "refused" | "split", group: any) => void;
+}) {
   if (!r?.ok) return <>{keyPart}<p className="muted small">{r ? "The draft does not check: see the review." : "Not reviewed yet."}</p></>;
   const s = r.residual;
   const none = unexplained(r).length === 0;
+  const open = (what: "no_key" | "refused" | "split", g: any, label: string) => (onOpen && g ? (
+    <>{" "}<button type="button" className="ghost small" aria-label={`Open ${label} in the mapping`} onClick={() => onOpen(what, g)}>open</button></>
+  ) : null);
+  const nkGroup = (k: string) => (s.no_key.groups || []).find((g: any) => g.kind === k);
   return (
     <>
       {keyPart}
@@ -252,7 +260,7 @@ export function SidePanel({ r, item, onItem, keyPart }: { r: any; item: string; 
             <ul className="small" aria-label="No key, by kind">{Object.entries(s.no_key.by_kind || {}).map(([k, v]) => (
               <li key={k}><strong>{k}</strong> {n(v as number)}{s.no_key.lacks?.[k]?.length
                 ? <>: tells no <code>{s.no_key.lacks[k].join(", ")}</code></>
-                : <span className="muted">: a key field it maps reads no value</span>}</li>
+                : <span className="muted">: a key field it maps reads no value</span>}{open("no_key", nkGroup(k), `${k}'s events with no key`)}</li>
             ))}</ul>
             <ul className="wb-kinds">{(s.no_key.kinds || []).map((k: any) => (
               <li key={k.when}><span className="wb-kind-n">{n(k.count)}</span> <code>{k.when}</code><Samples samples={k.samples} /></li>
@@ -260,7 +268,8 @@ export function SidePanel({ r, item, onItem, keyPart }: { r: any; item: string; 
           </Residue>
           <Residue label="refused" count={s.refused.count}>
             <ul>{s.refused.groups.map((g: any, i: number) => (
-              <li key={i}><span className="wb-kind-n">{n(g.count)}</span> {g.why} {typeof g.objects === "number" && <span className="muted small">({n(g.objects)} object{g.objects === 1 ? "" : "s"})</span>}</li>
+              <li key={i}><span className="wb-kind-n">{n(g.count)}</span> {g.why} {typeof g.objects === "number" && <span className="muted small">({n(g.objects)} object{g.objects === 1 ? "" : "s"})</span>}
+                {g.samples?.length > 0 && open("refused", g, `the events refused: ${short(g.why, 60)}`)}</li>
             ))}</ul>
           </Residue>
           <Residue label="contradictions: rare or impossible histories" count={s.contradictions.count}>
@@ -271,7 +280,8 @@ export function SidePanel({ r, item, onItem, keyPart }: { r: any; item: string; 
           </Residue>
           <Residue label="possible splits: one thing under two keys" count={s.splits.count}>
             <ul>{s.splits.groups.map((g: any, i: number) => (
-              <li key={i}>only {g.kinds.join(", ")}: {n(g.objects)} objects <span className="muted small">{(g.samples || []).join(", ")}</span></li>
+              <li key={i}>only {g.kinds.join(", ")}: {n(g.objects)} objects <span className="muted small">{(g.samples || []).join(", ")}</span>
+                {g.events?.length > 0 && open("split", g, `the split keyed by ${g.kinds.join(", ")}`)}</li>
             ))}</ul>
           </Residue>
           <Residue label="possible merges: two things under one key" count={s.merges.count}>

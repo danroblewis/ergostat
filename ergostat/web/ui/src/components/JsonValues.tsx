@@ -5,8 +5,9 @@
    stands out, and an ignored path (and all under it) is hidden unless `showIgnored`. */
 
 export type JsonPath = (string | number)[];
-/** What reads a path: `to` the field (or key) it fills; `ignored` known not to matter. */
-export interface PathMark { to?: string; ignored?: boolean }
+/** What reads a path: `to` the field (or key) it fills; `ignored` known not to matter; `flag` why it stands out
+    (a value refused, in the workbench's residual opened). */
+export interface PathMark { to?: string; ignored?: boolean; flag?: string }
 type Marker = (p: JsonPath) => PathMark | undefined;
 
 const MOST = 20;
@@ -16,14 +17,15 @@ function Leaf({ v, path, onPick, picked, mark }: {
 }) {
   const text = v === undefined ? "" : JSON.stringify(v);
   const m = mark?.(path);
-  const cls = `jv-val jv-${v === null ? "null" : typeof v}${mark ? (m?.to ? " jv-mapped" : m?.ignored ? " jv-ignored" : " jv-unmapped") : ""}`;
+  const cls = `jv-val jv-${v === null ? "null" : typeof v}${mark ? (m?.to ? " jv-mapped" : m?.ignored ? " jv-ignored" : " jv-unmapped") : ""}${m?.flag ? " jv-flag" : ""}`;
   const tag = m?.to ? <span className="jv-to"> → {m.to}</span> : null;
-  if (!onPick) return <><span className={cls}>{text}</span>{tag}</>;
+  const flag = m?.flag ? <span className="jv-flagged"> {m.flag}</span> : null;
+  if (!onPick) return <><span className={cls} title={m?.flag}>{text}</span>{tag}{flag}</>;
   const id = JSON.stringify(path);
   return (
     <>
       <button type="button" className={`${cls}${picked === id ? " on" : ""}`} data-path={id} title="Use this value"
-        onClick={() => onPick(path, v)}>{text}</button>{tag}
+        onClick={() => onPick(path, v)}>{text}</button>{tag}{flag}
     </>
   );
 }

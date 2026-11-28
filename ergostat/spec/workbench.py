@@ -37,6 +37,7 @@ RARE = 0.01                # a transition in fewer than this share of the object
 RARE_FROM = 50             # ... once at least this many objects have the field
 TIMELINE_MOST = 200        # events in one object's timeline
 KEYS_MOST = 1000           # objects' keys the item browser steps through
+OPEN_MOST = 10             # whole events a residual group gives, to open in the mapping step
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 RESERVED = ("data", "time", "type", "key", "source", "current", "true", "false", "null", "True", "False", "None")
 
@@ -446,6 +447,43 @@ def fold_all(kind, evs: list[dict], history: bool = True):
     return items, by_key, took, remainder, unkeyed
 
 
+def _whole(e: dict, took: dict) -> dict:
+    """An event as the query engine gives it, and the kind of event that took it: one the page opens to map."""
+    return {"seq": e.get("seq"), "id": e["id"], "time": e["time"], "type": e.get("type"), "item": e.get("item"),
+            "source": e.get("source"), "data": e.get("data"), "kind": took.get(e["id"])}
+
+
+REFUSED_AT = re.compile(r"^([A-Za-z_][\w-]*): (.+?) is not ")
+
+
+def _refused_at(why: str) -> tuple[str | None, object]:
+    """The field a refusal names and the value refused (``state: "stopping" is not one of its states``), else None."""
+    m = REFUSED_AT.match(why)
+    if not m:
+        return None, None
+    try:
+        return m.group(1), json.loads(m.group(2))
+    except ValueError:
+        return m.group(1), m.group(2)
+
+
+def _no_value(kind, ek, e: dict) -> list:
+    """The key fields whose expression in kind of event ``ek`` reads no value in event ``e``."""
+    from .handlers import Each, env_of, evaluate
+    if not ek.key or not kind.key:
+        return []
+    env, out = env_of(e, kind), []
+    for f, v in zip(kind.key, ek.key, strict=False):
+        try:
+            x = evaluate(v, env)
+        except Exception:                                 # noqa: BLE001 - a part that fails reads nothing
+            x = None
+        xs = list(x) if isinstance(x, Each) else [x]
+        if not any(y is not None and y != "" and not isinstance(y, (dict, list)) for y in xs):
+            out.append(f)
+    return out
+
+
 def residual(kind, items: dict, by_key: dict, took: dict, remainder: list, unkeyed: list, lives: dict) -> dict:
     from .handlers import env_of, evaluate
     refusals: dict[str, list] = {}
@@ -493,21 +531,70 @@ def residual(kind, items: dict, by_key: dict, took: dict, remainder: list, unkey
         for f, vals in seen.items():
             if len(vals) > 1:
                 merges.setdefault(f, []).append(key)
+    # what the page opens in its mapping step: per kind with no key, per refusal, per split, its events whole
+    nk: dict[str, list] = {}
+    for e in unkeyed:
+        nk.setdefault(took.get(e["id"]) or "-", []).append(e)
+    nk_groups = []
+    for kn, es in sorted(nk.items(), key=lambda kv: -len(kv[1]))[:GROUPS]:
+        ek = kinds.get(kn)
+        reads_none = Counter(f for e in es[:300] for f in (_no_value(kind, ek, e) if ek else []))
+        nk_groups.append({"kind": kn, "count": len(es), "lacks": list(ek.untold) if ek and ek.untold else [],
+                          "no_value": [f for f, _ in reads_none.most_common()],
+                          "events": [_whole(e, took) for e in es[-OPEN_MOST:]]})
+    by_id = {e["id"]: e for es in by_key.values() for e in es}
+    ref_groups = []
+    for w, x in sorted(refusals.items(), key=lambda kv: -len(kv[1]))[:GROUPS]:
+        f, v = _refused_at(w)
+        evs = [by_id[r["event"]] for _, r in x if r["event"] in by_id]
+        ref_groups.append({"why": w, "count": len(x), "objects": len({k for k, _ in x}),
+                           "events": [r["event"] for _, r in x[:SAMPLES]],
+                           **({"field": f, "value": v} if f is not None else {}),
+                           "kinds": [k for k, _ in Counter(took.get(e["id"]) for e in evs if took.get(e["id"])).most_common()],
+                           "samples": [_whole(e, took) for e in evs[-OPEN_MOST:]]})
+    main_sig = by_sig.most_common(1)[0][0] if by_sig else ()
+    main_kinds = [kn for kn, s in sig.items() if s == main_sig]
+    split_groups = []
+    width = len(kind.key or [])
+    mains = [k for k in by_key if k not in {x for v in splits.values() for x in v}]
+    at: list[dict] = [{} for _ in range(width)]        # per key part, its value → the other objects' keys
+    for k in mains:
+        parts = k.split("/")
+        if len(parts) == width:
+            for i, x in enumerate(parts):
+                at[i].setdefault(x, []).append(k)
+
+    def counterpart(key: str) -> tuple[str | None, list]:
+        """The object keyed the main way that shares the most key parts with ``key``, and the key fields that differ."""
+        parts = key.split("/")
+        if len(parts) != width:
+            return None, []
+        n = Counter(o for i, x in enumerate(parts) for o in at[i].get(x, ()))
+        if not n:
+            return None, []
+        best = n.most_common(1)[0][0]
+        return best, [f for f, a, b in zip(kind.key, parts, best.split("/"), strict=True) if a != b]
+
+    for ks, v in sorted(splits.items(), key=lambda kv: -len(kv[1]))[:GROUPS]:
+        twin, differ = counterpart(v[0])
+        if not differ:                                   # by the expressions, when no object keyed the main way is near
+            differ = sorted({f for kn in ks for f, a, b in zip(kind.key or [], sig.get(kn, ()), main_sig, strict=False)
+                             if a != b}, key=lambda f: list(kind.key).index(f))
+        half = OPEN_MOST // 2 if twin else OPEN_MOST
+        evs = by_key[v[0]][-half:] + (by_key[twin][-(OPEN_MOST - half):] if twin else [])
+        split_groups.append({"kinds": list(ks), "objects": len(v), "samples": v[:SAMPLES], "main": main_kinds,
+                             "differ": differ, **({"twin": twin} if twin else {}),
+                             "events": [{**_whole(e, took), "object": v[0] if e in by_key[v[0]] else twin} for e in evs]})
     return {
         "remainder": shapes(remainder),
         "no_key": {"count": len(unkeyed), "by_kind": dict(Counter(took.get(e["id"]) or "-" for e in unkeyed).most_common(GROUPS)),
                    "lacks": {kn: kinds[kn].untold for kn in dict.fromkeys(took.get(e["id"]) for e in unkeyed)
                              if kn in kinds and kinds[kn].untold},
-                   **shapes(unkeyed, GROUPS // 2)},
-        "refused": {"count": sum(len(x) for x in refusals.values()),
-                    "groups": [{"why": w, "count": len(x), "objects": len({k for k, _ in x}),
-                                "events": [r["event"] for _, r in x[:SAMPLES]]}
-                               for w, x in sorted(refusals.items(), key=lambda kv: -len(kv[1]))[:GROUPS]]},
+                   "groups": nk_groups, **shapes(unkeyed, GROUPS // 2)},
+        "refused": {"count": sum(len(x) for x in refusals.values()), "groups": ref_groups},
         "contradictions": {"count": len(contradictions) + len(finals), "rare": contradictions[:GROUPS],
                            "after_final": len(finals)},
-        "splits": {"count": sum(len(v) for v in splits.values()),
-                   "groups": [{"kinds": list(ks), "objects": len(v), "samples": v[:SAMPLES]}
-                              for ks, v in sorted(splits.items(), key=lambda kv: -len(kv[1]))[:GROUPS]]},
+        "splits": {"count": sum(len(v) for v in splits.values()), "groups": split_groups},
         "merges": {"count": len({k for v in merges.values() for k in v}),
                    "fields": [{"field": f, "objects": len(v), "samples": v[:SAMPLES]}
                               for f, v in sorted(merges.items(), key=lambda kv: -len(kv[1]))[:GROUPS]]},

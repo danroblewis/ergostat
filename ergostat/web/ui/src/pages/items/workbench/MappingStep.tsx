@@ -4,6 +4,10 @@ import { useSend } from "../../../hooks/useSend";
 import { fieldName, guessType, isPath, ofKind, pathExpr, reads, solvedKey, TYPES, underAny, type Draft, type KindDef } from "./draft";
 import { EventValues, short, type QEvent } from "./common";
 import { Commit } from "./KindsStep";
+import { Banner, type Live, type Opened } from "./opened";
+
+/** A residual group opened (opened.tsx): shown in the kinds it names, as their samples, until it is fixed. */
+export interface OpenedIn { o: Opened; live: Live | null; onUsual: () => void }
 
 /* Step 4, the mapping: per kind of event, its key as solved from what it maps to the key's fields (✓ each part's
    expression, ✗ a part it does not tell, a click away from its mapping), one of its events shown as it reads (each
@@ -13,7 +17,10 @@ import { Commit } from "./KindsStep";
    pointer leaves the value and the panel; clicked, it stays until the pointer leaves the panel, Escape or a click
    elsewhere. What another kind already maps by a plain path this kind's events have too is mapped here at once, said
    with a × to take each back. A kind whose sample events have every path mapped or ignored folds itself, a ✓ in its
-   line; it opens again on a click. And the event's own time (time:). */
+   line; it opens again on a click. And the event's own time (time:). A residual group opened from the review (its
+   no-key events, a refusal's, a split's object: opened.tsx) is shown in the kinds that took its events, as their
+   samples, with a banner saying what it is and how many are left; the key parts it lacks, the field refused (and the
+   value refused, marked in the event) or the key parts a split reads differently are highlighted. */
 
 export interface MappingEdits {
   setTop: (k: "time", v: string) => void;
@@ -115,13 +122,17 @@ function Picked({ k, draft, ed, editable, path, value, onDone }: {
 type Pop = { path: JsonPath; value: unknown; x: number; y: number; pinned: boolean; kb: boolean };
 const OPEN_MS = 250, GRACE_MS = 200;
 
-function KindMapping({ k, draft, ed, editable, fold }: {
+function KindMapping({ k, draft, ed, editable, fold, opened }: {
   k: KindDef; draft: Draft; ed: MappingEdits; editable: boolean; fold: (evs: QEvent[]) => Record<string, unknown> | null;
+  opened?: OpenedIn | null;
 }) {
   const q = ofKind(draft.query, k.when);
   const body = useMemo(() => (q.trim() ? { query: q, limit: 5 } : null), [q]);
   const got = useSend<{ events: QEvent[] }>("events/query", body, 600);
-  const evs = useMemo(() => got.data?.events || [], [got.data]);
+  // a residual group opened here: its events are the samples while it is not fixed
+  const live = opened?.live ?? null;
+  const theirs = useMemo(() => (live ? live.events.filter((x) => x.kind === k.name) : []), [live, k.name]);
+  const evs = useMemo(() => (theirs.length ? theirs : got.data?.events || []), [theirs, got.data]);
   const [at, setAt] = useState(0);
   const e = evs.length ? evs[Math.min(at, evs.length - 1)] : null;
   const [showIgnored, setShowIgnored] = useState(false);
@@ -134,8 +145,21 @@ function KindMapping({ k, draft, ed, editable, fold }: {
     const el = document.querySelector<HTMLInputElement>(`input[aria-label="${CSS.escape(`${k.name}: ${focus}`)}"]`);
     if (el) { el.focus(); el.scrollIntoView({ block: "nearest" }); setFocus(null); }
   });
+  const hlKey = live?.key ?? [];                       // what the group opened highlights: key parts, a field refused
+  const hlField = live?.field;
+  const box = useRef<HTMLDetailsElement>(null);
+  const token = opened?.o.token;
+  useEffect(() => {                                   // opened: shown, scrolled to, its key parts' mappings ready to type
+    if (token == null) return;
+    setOpen(true);
+    setAt(0);
+    box.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    if (live?.untold.length) setAdding((x) => [...new Set([...x, ...live.untold])]);
+    const f = live?.key[0] ?? live?.field;
+    if (f) setFocus(f);
+  }, [token]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const mark = (p: JsonPath): PathMark => {
+  const base = (p: JsonPath): PathMark => {
     const x = pathExpr(p);
     if (underAny(x, draft.ignore)) return { ignored: true };
     for (const [f, ex] of k.values) if (reads(ex, x)) return { to: f };
@@ -143,6 +167,19 @@ function KindMapping({ k, draft, ed, editable, fold }: {
     if (!draft.key.length && x === "key") return { to: "key" };
     if (draft.time && reads(draft.time, x)) return { to: "time" };
     return {};
+  };
+  // the value refused, marked where the field reads it (else wherever it is); a split's key parts read differently
+  const flagged = (p: JsonPath, m: PathMark): string | undefined => {
+    if (!live || !e) return undefined;
+    if (hlField != null && JSON.stringify(valueAt(e, p)) === JSON.stringify(live.value) && (!told[hlField] || m.to === hlField))
+      return `refused: ${short(live.why, 120)}`;
+    if (m.to && hlKey.includes(m.to) && opened?.o.what === "split") return `the key's ${m.to}, read differently by the kinds`;
+    return undefined;
+  };
+  const mark = (p: JsonPath): PathMark => {
+    const m = base(p);
+    const flag = flagged(p, m);
+    return flag ? { ...m, flag } : m;
   };
   const paths = e ? pathsOf(e) : { all: [], leaves: [] };
   const nIgnored = paths.leaves.filter((p) => underAny(pathExpr(p), draft.ignore)).length;
@@ -240,7 +277,8 @@ function KindMapping({ k, draft, ed, editable, fold }: {
   const untold = draft.fields.map((f) => f.name).filter((f) => !rows.includes(f));
 
   return (
-    <details className={`wb-map${complete ? " done" : ""}`} open={open} onToggle={(ev) => setOpen((ev.currentTarget as HTMLDetailsElement).open)}>
+    <details ref={box} className={`wb-map${complete ? " done" : ""}`} open={open} data-kind={k.name}
+      onToggle={(ev) => setOpen((ev.currentTarget as HTMLDetailsElement).open)}>
       <summary>
         {complete && <span className="wb-done" aria-label="Every path mapped">✓ </span>}
         <strong>{k.name}</strong>{" "}
@@ -248,6 +286,7 @@ function KindMapping({ k, draft, ed, editable, fold }: {
           : <code className="muted small">{short(k.when, 80)}</code>}
         {!complete && evs.length > 0 && <span className="muted small"> · {left} path{left === 1 ? "" : "s"} left</span>}
       </summary>
+      {opened && <Banner o={opened.o} live={live} kind={k.name} onUsual={opened.onUsual} />}
       {mapped.length > 0 && (
         <p className="wb-same" data-testid={`same-${k.name}`}>
           {froms.map((o) => (
@@ -272,7 +311,7 @@ function KindMapping({ k, draft, ed, editable, fold }: {
               {!solved.length ? <span className="muted small">the events&apos; own item (<code>key</code>)</span> : (
                 <span className="wb-solved" aria-label={`The key of ${k.name}`}>
                   {solved.map((kp, i) => (
-                    <span key={kp.field} className={kp.expr ? "wb-key-ok" : "wb-key-no"}>
+                    <span key={kp.field} className={`${kp.expr ? "wb-key-ok" : "wb-key-no"}${hlKey.includes(kp.field) ? " wb-hl" : ""}`}>
                       {i > 0 && <span className="muted"> · </span>}
                       {kp.field}{" "}
                       {kp.expr ? <><span aria-label="told">✓</span> <code>{short(kp.expr, 60)}</code>{kp.spread && <span className="muted small"> (by the spread)</span>}</>
@@ -285,7 +324,7 @@ function KindMapping({ k, draft, ed, editable, fold }: {
             </td>
           </tr>
           {rows.map((f) => (
-            <tr key={f}>
+            <tr key={f} className={f === hlField || hlKey.includes(f) ? "wb-hl" : undefined}>
               <th scope="row">{f}</th>
               <td className="wb-grow"><Commit className="mono" value={told[f] ?? ""} label={`${k.name}: ${f}`} disabled={!editable}
                 placeholder="an expression of the event" onCommit={(v) => ed.setKind(k.name, f, v)} /></td>
@@ -336,8 +375,10 @@ function KindMapping({ k, draft, ed, editable, fold }: {
   );
 }
 
-export function MappingStep({ draft, ed, editable, fold }: {
+export function MappingStep({ draft, ed, editable, fold, opened }: {
   draft: Draft; ed: MappingEdits; editable: boolean; fold: (evs: QEvent[]) => Record<string, unknown> | null;
+  /** a residual group opened from the review: shown in the kinds it names */
+  opened?: OpenedIn | null;
 }) {
   return (
     <>
@@ -346,7 +387,8 @@ export function MappingStep({ draft, ed, editable, fold }: {
           placeholder="the recorded time" onCommit={(v) => ed.setTop("time", v)} /></label>
       </p>
       {draft.kinds.length === 0 ? <p className="muted">No kinds of event yet (step 3).</p>
-        : draft.kinds.map((k) => <KindMapping key={k.name} k={k} draft={draft} ed={ed} editable={editable} fold={fold} />)}
+        : draft.kinds.map((k) => <KindMapping key={k.name} k={k} draft={draft} ed={ed} editable={editable} fold={fold}
+          opened={opened?.o.in.includes(k.name) ? opened : null} />)}
     </>
   );
 }

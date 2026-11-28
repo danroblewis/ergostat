@@ -11,7 +11,8 @@ review; a kind folding itself once every path is mapped, Enter and Escape on the
 and found, and a reload keeping the draft; a new projection surviving a change to the address (the bug that lost a
 draft: a search dropped the history state saying it was new) and a reload; a projection with nothing unexplained (one
 check; the panel below the steps on a narrow page); and an existing projection's drift, events of a new shape shown in
-its remainder.
+its remainder; and the residual's groups (no key, refused, a possible split) opened in the mapping step, their events
+there to map until each is fixed.
 
     uv run --with playwright==1.63.0 python -m pytest -q tests/test_projection_workbench_page.py
 """
@@ -463,4 +464,103 @@ def test_a_new_projection_survives_a_change_to_the_address_and_a_reload(browser,
     pg.locator(".wb-yaml .cm-content").wait_for(timeout=WAIT)
     yaml_has(pg, "state: {type: text}")
     pg.get_by_role("button", name="Cancel", exact=True).click()
+    pg.close()
+
+
+# ---- a residual group opened in the mapping step: its events there to map, until it is fixed
+
+OPENING = """\
+name: wb
+projections:
+  instance:
+    query: data.source == 'aws.ec2'
+    key: [account, region, instance_id]
+    fields:
+      state: {values: [pending, running, stopped, shutting-down, terminated]}
+      account: text
+      region: text
+      instance_id: text
+    ignore: [type]
+    events:
+      state-change:
+        when: data['detail-type'] == 'EC2 Instance State-change Notification'
+        state: data.detail.state
+        account: data.account
+        region: data.region
+        instance_id: data.detail['instance-id']
+      stop-call:
+        when: data.detail.eventName == 'StopInstances'
+        account: data.account
+        region: data.region
+      reboot-call:
+        when: data.detail.eventName == 'RebootInstances'
+        account: data.account
+        region: data.detail.eventSource
+        instance_id: each(data.detail.requestParameters.instancesSet.items, 'instanceId')
+"""
+
+
+def unexplained_has(pg, text: str, yes: bool = True) -> None:
+    pg.wait_for_function("([t, y]) => document.querySelector('[data-testid=unexplained]').textContent.includes(t) === y",
+                         arg=[text, yes], timeout=WAIT)
+
+
+@pytest.mark.parametrize("served", [OPENING], indirect=True)
+def test_no_key_refused_and_a_split_open_their_events_in_the_mapping_until_fixed(browser, served):
+    p, url = served
+    pg = opened(browser, url + "/instance")
+    pg.get_by_role("button", name="Edit", exact=True).first.click()
+    pg.locator("[data-step='5'].open [data-testid=review-objects]").wait_for(timeout=WAIT)
+    unexplained_has(pg, "no key")
+    side = pg.locator("aside.wb-side")
+
+    # no key: the kind that lacks instance_id, opened from the residual in the panel
+    side.locator("ul[aria-label='The residual'] li", has_text="no key").locator("summary").click()
+    side.get_by_role("button", name="Open stop-call's events with no key in the mapping").click()
+    stop = kind_box(pg, "stop-call")
+    banner = stop.locator("[data-testid=opened-stop-call]")
+    banner.wait_for(timeout=WAIT)
+    said = banner.inner_text()
+    assert "of 31 events with no key" in said and "instance_id is not told" in said and "show its usual samples" in said
+    assert "StopInstances" in stop.locator(".wb-sample").inner_text()
+    assert stop.locator("[data-testid=key-stop-call] .wb-key-no.wb-hl").count() == 1          # the ✗ highlighted
+    box = stop.get_by_label("stop-call: instance_id")
+    pg.wait_for_function("() => document.activeElement?.getAttribute('aria-label') === 'stop-call: instance_id'", timeout=WAIT)
+    box.fill("each(data.detail.requestParameters.instancesSet.items, 'instanceId')")
+    pg.keyboard.press("Enter")
+    stop.locator("[data-testid=opened-stop-call]", has_text="✓ fixed").wait_for(timeout=WAIT)
+    unexplained_has(pg, "no key", False)
+    stop.get_by_role("button", name="Close").click()
+    assert stop.locator("[data-testid=opened-stop-call]").count() == 0
+
+    # refused: from the line above the steps; the value refused marked in the event, the field highlighted
+    pg.locator("[data-testid=unexplained]").get_by_role("button", name="refused").click()
+    change = kind_box(pg, "state-change")
+    banner = change.locator("[data-testid=opened-state-change]")
+    banner.wait_for(timeout=WAIT)
+    assert "refused events" in banner.inner_text() and 'state: "stopping" is not one of its states' in banner.inner_text()
+    assert change.locator(".wb-sample .jv-flag").first.inner_text() == '"stopping"'
+    assert change.locator("tr.wb-hl th").inner_text() == "state"
+    pg.locator("[data-step='1'] .wb-step-head button").click()
+    pg.get_by_label("The values of state").fill("pending, running, stopping, stopped, shutting-down, terminated")
+    pg.keyboard.press("Enter")
+    change.locator("[data-testid=opened-state-change]", has_text="✓ fixed").wait_for(timeout=WAIT)
+    assert change.locator(".wb-sample .jv-flag").count() == 0                                   # its usual samples
+    unexplained_has(pg, "refused", False)
+
+    # a possible split: the object's events, and those of the object keyed the main way, the key part that differs
+    side.locator("ul[aria-label='The residual'] li", has_text="possible splits").locator("summary").click()
+    side.get_by_role("button", name="Open the split keyed by reboot-call in the mapping").click()
+    reboot = kind_box(pg, "reboot-call")
+    banner = reboot.locator("[data-testid=opened-reboot-call]")
+    banner.wait_for(timeout=WAIT)
+    assert "possible split" in banner.inner_text() and "region read differently" in banner.inner_text()
+    assert "RebootInstances" in reboot.locator(".wb-sample").inner_text()
+    assert "region" in reboot.locator("[data-testid=key-reboot-call] .wb-hl").inner_text()
+    assert change.locator("[data-testid=opened-state-change]").count() == 1                    # the main way, too
+    reboot.get_by_label("reboot-call: region").fill("data.region")
+    pg.keyboard.press("Enter")
+    reboot.locator("[data-testid=opened-reboot-call]", has_text="✓ fixed").wait_for(timeout=WAIT)
+    unexplained_has(pg, "possible splits", False)
+    assert settled(pg) == []
     pg.close()

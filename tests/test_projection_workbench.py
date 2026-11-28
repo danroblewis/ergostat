@@ -417,6 +417,42 @@ def test_the_residual_shows_a_remainder_a_merge_and_a_split(tmp_path):
         "launched_by", "launched_at")
 
 
+def test_each_residual_group_gives_its_events_whole_to_open_in_the_mapping(tmp_path):
+    p = project(tmp_path)
+    delivered, _ = ec2(seed=9, instances=10, days=2)
+    recorded(p, delivered)
+    draft = INSTANCE.replace("pending, running, stopping, stopped", "pending, running, stopped")      # stopping refused
+    draft = draft.replace("""  restart:
+    when: data.detail.eventName == 'RebootInstances'
+    account: data.account
+    region: data.region
+""", """  restart:
+    when: data.detail.eventName == 'RebootInstances'
+    account: data.account
+    region: data.detail.eventSource
+""")                                                                                                   # reboots keyed otherwise
+    draft = draft.replace("""    when: data.detail.eventName == 'StartInstances'
+    account: data.account
+    region: data.region
+    instance_id: "each(data.detail.requestParameters.instancesSet.items, 'instanceId')"
+""", """    when: data.detail.eventName == 'StartInstances'
+    account: data.account
+    region: data.region
+    instance_id: data.detail.nothing
+""")                                                                                                   # starts: no key read
+    s = workbench.review(p, {"name": "instance", "yaml": draft, "compare": False})["residual"]
+    g = next(x for x in s["no_key"]["groups"] if x["kind"] == "start")
+    assert g["count"] > 0 and g["lacks"] == [] and g["no_value"] == ["instance_id"]
+    assert 0 < len(g["events"]) <= workbench.OPEN_MOST
+    assert {e["kind"] for e in g["events"]} == {"start"} and g["events"][0]["data"]["detail"]["eventName"] == "StartInstances"
+    ref = next(x for x in s["refused"]["groups"] if x.get("value") == "stopping")
+    assert ref["field"] == "state" and ref["kinds"] == ["state-change"]
+    assert all(e["data"]["detail"]["state"] == "stopping" for e in ref["samples"]) and ref["samples"]
+    sp = next(x for x in s["splits"]["groups"] if x["kinds"] == ["restart"])
+    assert sp["differ"] == ["region"] and sp["twin"].split("/")[2] == sp["samples"][0].split("/")[2]
+    assert {e["kind"] for e in sp["events"]} >= {"restart"} and {e["object"] for e in sp["events"]} <= {sp["samples"][0], sp["twin"]}
+
+
 def test_the_review_compares_with_the_saved_definition(tmp_path):
     p = project(tmp_path, as_model("instance", INSTANCE))
     delivered, _ = ec2(seed=4, instances=10, days=2)

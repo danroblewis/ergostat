@@ -3649,10 +3649,11 @@ capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 
    lifecycles: {FIELD: {values, objects, now: {value: n},                       # per one-of field
                         transitions: [{from, to, count, objects}], rare: [...]}},
    residual: {remainder: {count, kinds: [as events/kinds]},                     # events no kind takes, by shape
-              no_key: {count, by_kind, lacks, kinds},                           # taken, but keyed to nothing
-              refused: {count, groups: [{why, count, objects, events}]},
+              no_key: {count, by_kind, lacks, kinds,                            # taken, but keyed to nothing
+                       groups: [{kind, count, lacks, no_value, events: [whole]}]},
+              refused: {count, groups: [{why, count, objects, events, field?, value?, kinds, samples: [whole]}]},
               contradictions: {count, rare: [{field, from, to, count, objects, samples}], after_final},
-              splits: {count, groups: [{kinds, objects, samples}]},
+              splits: {count, groups: [{kinds, objects, samples, main, differ, twin?, events: [whole + object]}]},
               merges: {count, fields: [{field, objects, samples}]}},
    duplicates: {envelope_id, same_data, says?},
    unmapped: {count, paths: [{path, events, kinds}], paths_left?, ignored, read},   # what is left to decide
@@ -3665,7 +3666,14 @@ capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 
   A number's or a time's field has its range and a histogram (a time's bounds as ISO 8601); any other its top values.
   A **contradiction** is a transition of a `one of` field seen in fewer than 1% of the objects that have the field
   (once 50 have it: an impossible history is a rare one), or a move out of a `final:` state (refused, counted in
-  `after_final`). `no_key.lacks` is, per kind whose events had no key, the key fields it does not tell. A possible
+  `after_final`). `no_key.lacks` is, per kind whose events had no key, the key fields it does not tell. Each residual
+  group the page opens in its mapping step gives up to 10 of its events whole (`whole`: as the query engine gives them,
+  `{seq, id, time, type, item, source, data}`, and `kind`, the kind that took it): `no_key.groups` per kind (`lacks` the
+  key fields it does not tell, `no_value` those it maps that read no value in its events), `refused.groups` per reason
+  (`field` and `value` the field refused and the value, when the reason names them, `field: VALUE is not ...`; `kinds`
+  the kinds that took its events), `splits.groups` per set of kinds (`main` the kinds keyed the main way, `twin` the
+  object keyed the main way sharing the most key parts with its first object, `differ` the key fields whose values
+  differ between them, else whose expressions do; its events those of both objects, each with the `object` it went to). A possible
   **split** is an object whose events all came from kinds whose solved key differs from the one the kinds that took the
   most events solve to (the same thing named two ways: its state changes keyed by account/region/id, its launches by a
   region read otherwise). A possible **merge** is an object a `first` field was given two different values in (two
@@ -3715,7 +3723,17 @@ capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 
   record (its fields now) and its change history (its state's path through its values, its events in time order, which
   kind took each, what each changed); the lifecycles (transitions with bars); each field's distribution (top values,
   histogram; a time's drawn over time); and at the bottom the residual (each count that is not 0 opened to its samples;
-  none, *✓ Nothing unexplained*). A new projection opens on all five; one that exists on its review, so what drifted shows.
+  none, *✓ Nothing unexplained*). **Opening a residual group** (2026-11-27): each kind with no key, each refusal and
+  each possible split in the residual has an *open* (and the line above the steps: its *no key*, *refused* and
+  *possible splits* open the first group, its *remainder* step 3), which opens step 4 on the kinds that took the
+  group's events, scrolled to, those events their samples in place of the usual ones, under a banner saying what it is
+  (*Showing 10 of 31 events with no key — instance_id is not told · show its usual samples*). No key: the ✗ parts (or
+  the key parts that read no value) highlighted, their mapping boxes opened and the first focused. Refused: the field
+  highlighted in its rows and the value refused marked in the event, the reason in the banner. A split: its first
+  object's events and those of the object keyed the main way nearest it, in each kind's section, the key parts that
+  differ highlighted. As the mappings change the review runs again and the banner's count follows; a group gone from a
+  review of a draft that checks is fixed: its banner says *✓ fixed* and the kinds return to their usual samples.
+  A new projection opens on all five; one that exists on its review, so what drifted shows.
 
 **Where it went, on the item's page.** Right after its header, an item of a projection the model counts or takes shows its
 `path` the stock-and-flow way, in move order, wrapping on a narrow screen: each step boxed, named by the stock that
