@@ -4250,6 +4250,29 @@ never a decision: not in the header's "for you", not on the Inbox; the Goals pag
 the page's header (*1 sensor failing*, linked to the diagram around the part); and the diagram, where the part is
 drawn unmeasured and its side panel says why. A reading since the failure ends it.
 
+**The engine's own faults** (`ergostat/faults.py`). A part of the engine's loop that raises (the joins, a projection's
+emit outbox, the triggers, the schedules, the messages', workspaces' and actions' sweeps, the evaluation) or a step
+after a block's run (its costs, its claims check, its failure triage, its swallowed-error check, its workspace's
+release) is never only logged: it is recorded on change, never every pass: `ergostat.fault.started` (its `part`,
+`what`, `why`, `since`) when it begins, `ergostat.fault.changed` when its why changes, `ergostat.fault.cleared` (with
+`lasted`) when the part next succeeds, each about `ergostat.fault/PART` (`emit`, `joins`, `block/NAME/costs`, ...), its
+history on the Events page (`?item=`). What is open now is in `<state>/faults.json`, read back by an engine that starts
+(a fault open when it stopped clears on its first good pass): `/api/status`'s `faults`, the attention list (a fault,
+in *Model housekeeping*: "emit for projection deploy failing since 10:02: why", linked to its history) and the page's
+header beside the failing sensors (*1 engine fault*).
+
+**Every attention row links to where its thing is.** A row about an item links to the item; an alarm to its block on
+the diagram (`/diagram?view=blocks&around=block/NAME`); a daemon, and an agent whose last run failed or whose lines
+could not be read, to the agent's page (its runs, its daemon's processes); an agent's refused lines to them on the
+Events page (`?match=agent.refused&item=NAME`); a stock's significant residual to the stock on the diagram
+(`/diagram?around=stock/NAME`).
+
+**A residual, recorded** (invariant 7). A stock's residual (what its known flows fail to explain over the window) is
+recorded when it becomes significant (`residual.significant`, about `stock.NAME`: `unexplained`, `explained`,
+`change`, `hours`, `why`) and when it no longer is (`residual.subsided`, with `since`), on change only, from the live
+snapshot (whoever reads it: the page, the command line, the engine), what was last recorded kept in
+`<state>/residuals.json` under its lock so each change is recorded once. A residual that came and went leaves a record.
+
 **Not measurable yet.** A built-in measure that has nothing to measure yet (the fit of a model with no stock of its
 own read by a sensor, a budget block before its first pass: every case where `ergostat measure NAME` has no value)
 is not a failure: `ergostat measure NAME` exits 3 and prints `NAME: no value yet: WHY`, and the engine records the
@@ -4985,7 +5008,10 @@ ergostat takes the new model **in place, at run boundaries**: it never restarts 
   is said in the log (with every error), at the top of `ergostat status` (with every error, even when the files do
   not load at all) and in the page's header (as *Model errors*, a link to Check, the sentence and every error its
   title), from `<state>/reload.json`, until the files are fixed. The same files
-  are not read again until they change. `run --stop` and `run --service --uninstall` work while they do not load
+  are not read again until they change. Each refusal is in the record too (`reload.noted`): `model.refused` (its
+  `errors`, `where`, `running`: the version still running), when the files are refused or refused with other errors
+  than before, and `model.taken` (the `version` now, `refused_since`, the `errors` it had, `refused_for`) when files
+  refused before load again: the history of broken YAML, while `reload.json` is the page's mark of the refusal now. `run --stop` and `run --service --uninstall` work while they do not load
   (the state folder found without the model).
 - **The command line on the last good model.** Every file the model's loading reads goes through one place
   (`ergostat/spec/files.py`): the main file, its includes and what each glob matched, prompt files, the library's
@@ -7646,11 +7672,19 @@ and the item, folded from them, is the change.
 | refused | `.refused` (from made): with why | ergostat |
 | testing | `.testing`: the judge replays it on the record after it | ergostat |
 | passed / failed | `.passed`, `.failed`: the judge's verdict, with its windows | ergostat |
+| reviewing | `.reviewing` (right after `.passed`): a kind the reviewer reads (the judge's `reviewed:`) waits for its verdict; neither the owner's nor the policy's yet | ergostat |
+| passed (reviewed) | `.passed` again, after `.reviewed`: the reviewer passed it, or could not decide, or sent it back with no author to take it (the owner's, its findings beside it) | `reviewer` |
+| sent-back | `.sent-back`: the reviewer sent it back to its author (`sent_to`, `why`: "sent back to AUTHOR by the reviewer: ..."); kept in the list, its author's next proposal is the second round | `reviewer` |
+| rejected | `.rejected`: the reviewer turned it away (the verdict "the reviewer rejected it: ...", the judge's verdict it read kept as `judged`); the memory holds its target back | `reviewer` |
+| verified / regressed | `.verified`, `.regressed`: an accepted change scored again later (section 12f); its status says which, never plainly accepted | ergostat |
 | inconclusive | `.inconclusive`: the record held out could not tell it from the model as it is; it needs more record, and is not failed | ergostat |
 | accepted | `.accepted`: written into the YAML | who decided: the owner, or the judge's policy (the judge, naming the policy) |
 | dismissed | `.dismissed`: with the owner's reason | the owner |
 | revised | `.revised` (no move of state): ergostat's own change found again with other numbers or evidence, or carried to a new version of the model (`rebased`) | ergostat |
-| superseded | `.superseded`: what it is about was removed or edited since it was made (said which), its edit no longer applies, or no longer found by the finder that made it | ergostat |
+| superseded | `.superseded`: replaced, with no verdict: what it is about was removed or edited since it was made (said which), its edit no longer applies, or no longer found by the finder that made it. Only this is as if never made (left out of the review queue's list, so it may be made again); a change the reviewer sent back or rejected is never recorded as superseded | ergostat |
+
+Its finished states (built in): accepted, verified, regressed, refused, failed, rejected, sent-back, dismissed,
+superseded and inconclusive.
 
 Its fields are folded from the events as any item's are (section 5a): `kind`, `parts`, `edit`, `reasons` with their
 evidence, `confidence`, the measured effect (`fit_before`, `fit_after`, `refit`, `findings`), `verdict`, `made_by` and
@@ -7660,7 +7694,7 @@ finding), so its history keeps each earlier statement, linked to the event that 
 records the diff, the model's version before and after, the fit before and after, the reason, who made it and who
 accepted it: the model's history.
 
-The review queue (the Fit page, `ergostat proposals`) **is** the open items (checked, testing, passed) made against
+The review queue (the Fit page, `ergostat proposals`) **is** the open items (checked, testing, reviewing, passed) made against
 the model as it is: a richer view of the same items, and Items → `ergostat.model-change` lists them all, decided
 ones included. Item sensors count them like any items, so the loop is plain YAML (below).
 
@@ -8037,7 +8071,8 @@ the goals on the stocks they make.
 - **What is in the stock: the groups, as a projection.** Under `use: modelling`, the built-in projection
   `ergostat.unexplained` (sealed: only ergostat writes it) holds one object a group, `ergostat.unexplained/GROUP`:
   `source`, `type` (`shape` for a type that tells nothing), `label`, `count` (its unexplained events now), `first`,
-  `last`, `examples` (the newest five event ids), `request` (its request's item), `change` (the latest change citing
+  `last`, `examples` (the newest five event ids), `request` (its request's item: modelling's bookkeeping, never what
+  the owner is linked to: the inbox's held entry for a group, and every other link for one, is to this object), `change` (the latest change citing
   it), `title` and `drafts` (that change's title and the projections it drafts), `round` (the reviewer's round),
   `latest` (the latest word on it, in a line: the judge's why, the reviewer's finding), `why`, and its `state`, the one
   thing the owner watches a group become a projection by: `unexplained` (nothing in progress); `judging` (a change
@@ -8318,9 +8353,9 @@ and `key`.
 
 | Verdict | Recorded | What happens |
 |---|---|---|
-| `pass` | `ergostat.model-change.reviewed` (from `reviewer`, no move of state): `review: {verdict, findings, summary, round, author, cost_usd, read}` | the judge's policy may write it; the inbox offers it to the owner |
-| `revise` | the same, then `.superseded` ("sent back to AUTHOR by the reviewer: ...") | back to its author (a block of rung `ai` or `person`): its next proposal on the same parts (a redesign: of the same system, asked for again at once) carries `revising`, `review_round: 2` and `review_asked`, the findings, and is read as the second round. A second revise is a **reject**, and every revise on those parts in the last day counts (a second round the judge failed is still the second round); after two, the author's proposals on them are held back for the day. A change no author can revise (ergostat's finders, a program, the owner's what-if) stays passed and goes to the inbox with the findings, for the owner; the judge never writes it, and a redesign so left holds no lines |
-| `reject` | the same, then `.failed` (the verdict "the reviewer rejected it: ...") | it leaves the queue, and the memory (*Turned away, remembered*) holds the same target back |
+| `pass` | `ergostat.model-change.reviewed` (from `reviewer`): `review: {verdict, findings, summary, round, author, cost_usd, read}`, then `.passed` (from `reviewing`) | the judge's policy may write it; the inbox offers it to the owner |
+| `revise` | the same, then `.sent-back` ("sent back to AUTHOR by the reviewer: ...", `sent_to`) | back to its author (a block of rung `ai` or `person`): its next proposal on the same parts (a redesign: of the same system, asked for again at once) carries `revising`, `review_round: 2` and `review_asked`, the findings, and is read as the second round. A second revise is a **reject**, and every revise on those parts in the last day counts (a second round the judge failed is still the second round); after two, the author's proposals on them are held back for the day. A change no author can revise (ergostat's finders, a program, the owner's what-if) stays passed and goes to the inbox with the findings, for the owner; the judge never writes it, and a redesign so left holds no lines |
+| `reject` | the same, then `.rejected` (the verdict "the reviewer rejected it: ...") | it leaves the queue, and the memory (*Turned away, remembered*) holds the same target back |
 
 Each verdict needs a specific finding (`{"check", "says"}`) unless it is a pass; an answer without one records nothing,
 and the change is read again on the next run, at most 3 times on the change as it stands (each call is stamped with
@@ -9877,7 +9912,7 @@ drawn in all three views like the modelling loop:
 - *Dynamics:* the stock `interventions-waiting` (`builtin: ergostat.interventions.waiting`: the inbox's entries and
   the alarms raised), filled as interventions are asked (`interventions-asked`, which each resolved class lowers) and
   drained as a person answers them (`interventions-answered`); the auxiliaries `interventions-per-day` (what is asked
-  a day) and `intervention-trend` (below). The requests by state, items of the built-in projection `ergostat.model-request`:
+  a day) and `intervention-trend` (below). The requests by state, items of the built-in projection `ergostat.intervention-class`:
   `open-requests` (open, investing, verifying), `suppressed-requests` (and back to open when the guard is put back),
   `resolved-requests` (and back to open when the class intervenes again).
 - *Blocks:* the goal `interventions-falling` holds the trend at or under 0 (a steady load holds; a rise the record
@@ -9887,7 +9922,7 @@ drawn in all three views like the modelling loop:
 
 **The controller**, each pass: (1) suppression and graduation recorded (below); (2) the classes ranked by the hours
 they blocked their processes over the window, then by count; each that recurs (`recurs`, 3 by default, over the
-window) and has no request gets one (`ergostat.model-request/<hash of the class>`, `.opened`), with its count, share,
+window) and has no request gets one (`ergostat.intervention-class/<hash of the class>`, `.opened`), with its count, share,
 hours blocked, rank, most common cause, and **candidate remedies**: automate the person's step with a block (the
 person reviewing until its claims hold); graduate the gate (`gate: auto`, `mode: auto`, the judge's `accept:`) with
 its evidence; add the missing structure (for an alarm, what explains what it watches: a capacity, rework, a delay, a
@@ -9902,7 +9937,7 @@ resolved class that intervenes again is reopened. `ergostat inbox --invest CLASS
 bounds and what it watches; each action class's strictest gate, in the order `deny` > `approve` > `auto`; each
 advised and person block; each channel's gate. Only a guard **removed or loosened** is judged; one kept, tightened
 (`auto` to `approve`, `approve` to `deny`, a lower alarm bound) or edited otherwise is not. It is **suppression**
-(`ergostat.model-request.suppressed` on its class's request, with the guard before and after and the class's rate
+(`ergostat.intervention-class.suppressed` on its class's request, with the guard before and after and the class's rate
 before, interventions per day over the window) when an alarm is removed or loosened and no goal holds what it
 watches; an `approve` gate is removed, or becomes `auto` without the evidence that graduates it (the owner approved
 the class at least five times this week, never denied); an advised block is removed, or turned `auto` without that

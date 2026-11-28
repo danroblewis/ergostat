@@ -1,7 +1,7 @@
 """Interventions, a stock under control (SPEC §12p): each time a person was needed (an approval held, a request, an
 advised command, a raised alarm) is evidence of a missing loop or a gap in the model, read from the record with its
 class and cause. The ``interventions`` template's controller (``requests``) turns each recurring class into an
-``ergostat.model-request`` naming its candidate remedies; ``watch`` tells a remedy from suppression (a guard removed
+``ergostat.intervention-class`` naming its candidate remedies; ``watch`` tells a remedy from suppression (a guard removed
 or loosened with nothing automated in its place), whose class keeps counting at its rate before. The trend is held
 off only on a rise the record shows beyond its noise (the slope's lower bound above 0), and a class being worked on
 counts at most at its rate before the work began, for a while, so the rise its fix needs does not count against it.
@@ -14,7 +14,7 @@ import json
 import math
 import time
 
-from ..spec.ir import MODEL_REQUEST
+from ..spec.ir import INTERVENTION_CLASS
 
 DAY = 86400.0
 CHATTER, CHATTER_SPAN = 3, 60.0          # ISA-18.2's chattering alarm: three or more times in a minute
@@ -55,13 +55,13 @@ def read(p, spec, since: float, until: float) -> list[dict]:
 
 
 def request_id(cls: str) -> str:
-    return f"{MODEL_REQUEST}/{hashlib.sha1(cls.encode()).hexdigest()[:10]}"
+    return f"{INTERVENTION_CLASS}/{hashlib.sha1(cls.encode()).hexdigest()[:10]}"
 
 
 def requests_now(p) -> dict[str, dict]:
     """Every modelling request, folded, by its class (the item index's table: ``projections.stored``)."""
     from ..spec import projections
-    return projections.stored(p, "model-request")
+    return projections.stored(p, "intervention-class")
 
 
 def _periods(r: dict, state: str, now: float, most: float | None = None) -> list[tuple[float, float]]:
@@ -253,11 +253,11 @@ def watch(p, spec, now: float) -> list[str]:
             how = _judge(spec, k, was, new.get(k), rec.get(k) or {}) if new.get(k) != was else None
             if how is None:
                 if (reqs.get(k) or {}).get("state") == "suppressed" and new.get(k) == reqs[k].get("before"):
-                    p.events.add(f"{MODEL_REQUEST}.opened", item=request_id(k), source="ergostat",
+                    p.events.add(f"{INTERVENTION_CLASS}.opened", item=request_id(k), source="ergostat",
                                  data={"class": k, "why": "the guard is back as it was"}, at=now)
                 continue
             n = sum(1 for x in xs if x["class"] == k)
-            p.events.add(f"{MODEL_REQUEST}.{how}", item=request_id(k), source="ergostat",
+            p.events.add(f"{INTERVENTION_CLASS}.{how}", item=request_id(k), source="ergostat",
                          data={"class": k, "before": was, "after": new.get(k), "rate": n / (s["window"] / DAY),
                                "evidence": rec.get(k) or {}}, at=now)
             said.append(f"{k}: {how}")
@@ -298,7 +298,7 @@ def requests(p, spec, now: float | None = None) -> dict:
         again = r is not None and r["state"] == "resolved" and any(
             x["class"] == o["class"] and x["time"] > r["moves"][-1]["time"] for x in xs)
         if o["count"] >= s["recurs"] and (r is None or again):
-            p.events.add(f"{MODEL_REQUEST}.opened", item=request_id(o["class"]), source="ergostat",
+            p.events.add(f"{INTERVENTION_CLASS}.opened", item=request_id(o["class"]), source="ergostat",
                          data={**o, "rank": rank, "remedies": remedies(spec, o["class"], rec.get(o["class"])),
                                "why": "it intervened again after it was resolved" if again else "it recurs"}, at=now)
             made += 1
@@ -307,7 +307,7 @@ def requests(p, spec, now: float | None = None) -> dict:
         wait = max(s["verify"], 3 * (ts[-1] - ts[0]) / (len(ts) - 1) if len(ts) > 1 else s["verify"])
         quiet = now - max([*ts, r["moves"][-1]["time"]])
         if r["state"] in OPEN and quiet >= wait and _ran(p, spec, cls, r.get("cause") or "", now - wait):
-            p.events.add(f"{MODEL_REQUEST}.resolved", item=r["id"], source="ergostat",
+            p.events.add(f"{INTERVENTION_CLASS}.resolved", item=r["id"], source="ergostat",
                          data={"why": f"no intervention for {wait / DAY:.2g}d (three of its mean intervals, at least "
                                       f"{s['verify'] / DAY:g}d), and its process worked meanwhile"}, at=now)
             resolved += 1

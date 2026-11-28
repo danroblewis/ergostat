@@ -19,7 +19,8 @@ Two kinds so far:
 
 A third, the owner's what-if (``propose_values``); and the structural proposals (``structural.py``) are
 kept here too, so they are accepted and dismissed the same way. All are read as one review queue
-(``review.py``). Kept in ``<state>/proposals.json``."""
+(``review.py``). Each step of each is an event of its ``ergostat.model-change`` item (``event``), the record the only
+store: the changes are that projection's items, folded (``changes``)."""
 
 from __future__ import annotations
 
@@ -43,10 +44,13 @@ from . import version as ver
 from . import yamledit as ye
 
 EQUATION_R2 = 0.5        # an equation is proposed when it explains this much of its flow's readings (1 − SSE/SST)
-OPEN = ("checked", "testing", "passed")                 # waiting: in the review queue
-STATUS = {"made": "made", "checked": "pending", "testing": "pending", "passed": "pending", "accepted": "accepted",
-          "refused": "refused", "failed": "failed", "dismissed": "dismissed", "superseded": "superseded",
-          "verified": "accepted", "regressed": "accepted",           # scored again after it was written (verify.py)
+OPEN = ("checked", "testing", "reviewing", "passed")    # waiting: in the review queue
+JUDGED = ("reviewing", "passed")                         # the judge passed it (reviewing: a reviewed kind, the reviewer's)
+WRITTEN = ("accepted", "verified", "regressed")          # written into the model (then scored again, verify.py)
+STATUS = {"made": "made", "checked": "pending", "testing": "pending", "reviewing": "pending", "passed": "pending",
+          "accepted": "accepted", "refused": "refused", "failed": "failed", "dismissed": "dismissed",
+          "superseded": "superseded", "sent-back": "sent-back", "rejected": "rejected",   # the reviewer's (reviewer.py)
+          "verified": "verified", "regressed": "regressed",           # scored again after it was written (verify.py)
           "inconclusive": "inconclusive"}                              # the judge could not tell: it needs more record
 
 
@@ -68,8 +72,9 @@ def changes(p) -> dict[str, tuple[str, dict]]:
 
 def stored(p) -> dict[str, dict]:
     """The changes to the model, as the review queue reads them: each with its ``status`` (pending while it is
-    checked, testing or passed; else what became of it) and its ``state``. One superseded is as if never made: it
-    may be made again."""
+    checked, testing, reviewing or passed; else what became of it) and its ``state``. One superseded (replaced by a
+    newer one, or by the model moving, with no verdict) is as if never made: it may be made again. One the reviewer sent
+    back (``sent-back``) or rejected is kept, as every decided change is."""
     return {pid: {**f, "id": pid, "state": st, "status": STATUS[st]} for pid, (st, f) in changes(p).items()
             if st != "superseded"}
 
@@ -91,7 +96,7 @@ def locked(p, name: str = "proposals"):
 def candidate(x: dict) -> bool:
     """A change ergostat's own finders never let go when they look again: one a block made, or one under test or
     passed by the judge."""
-    return bool(x.get("made_by") and x["made_by"] not in ("ergostat", "owner")) or x.get("state") in ("testing", "passed")
+    return bool(x.get("made_by") and x["made_by"] not in ("ergostat", "owner")) or x.get("state") in ("testing", *JUDGED)
 
 
 def event(p, pid: str, state: str, data: dict | None = None, source: str = "ergostat", causedby: str | None = None) -> dict:
@@ -99,7 +104,7 @@ def event(p, pid: str, state: str, data: dict | None = None, source: str = "ergo
     return p.events.add(f"{MODEL_CHANGE}.{state}", item=item_of(pid), source=source, causedby=causedby, data=data or {})
 
 
-DECIDED = {"accepted", "dismissed", "refused", "failed", "superseded", "inconclusive"}
+DECIDED = {"accepted", "dismissed", "refused", "failed", "superseded", "sent-back", "rejected", "inconclusive"}
 LOCAL = ("id", "status", "state")
 
 
@@ -236,7 +241,7 @@ def _carry(p, spec: Spec, x: dict, found: dict | None) -> str | None:
     if who:
         return f"on the model as it is, it would change who decides ({', '.join(who)})"
     v = ver.version(spec)
-    event(p, x["id"], "testing" if x["state"] == "passed" else "revised",
+    event(p, x["id"], "testing" if x["state"] in JUDGED else "revised",
           {"version": v, "structure": ver.structure(spec), "edit": edit, "rebased": {"from": x["version"], "to": v},
            "rewires": stc.rewired(spec, after), **dict.fromkeys(("verdict", "undecided", "more", "not_exercised", "looked"))})
     return None
@@ -446,7 +451,7 @@ def admit(p, spec: Spec, props: dict, found: list[dict], now: float, window: flo
     st, v = ver.structure(spec), ver.version(spec)
     for x in found:
         was = props.get(x["id"])
-        if was is not None and (was["status"] in ("accepted", "dismissed") or candidate(was) or
+        if was is not None and ((was["status"] in (*WRITTEN, "dismissed")) or candidate(was) or
                                 (was["state"] == "checked" and _said(x) == _said(was))):
             continue                               # decided, under the judge, or found again as it was: left as it is
         x = {**x, "made_by": x.get("made_by") or "ergostat", "window": window}
@@ -779,7 +784,7 @@ def propose_values(p, raw: dict[str, str], snap: dict | None = None, n: int | No
     b, a = before.get("total") or {}, after.get("total") or {}
     props = stored(p)
     pid = _id("parameter", st, "what-if", sorted(moved.items()))
-    if (props.get(pid) or {}).get("status") == "accepted":
+    if (props.get(pid) or {}).get("status") in WRITTEN:
         pid = _id("parameter", st, "what-if", sorted(moved.items()), time.time())
     names = sorted(moved)
     parts = sorted({u for k in names for u in users_of(spec, k)})

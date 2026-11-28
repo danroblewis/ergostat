@@ -410,6 +410,8 @@ def _snapshot(project, window: float, now: float | None) -> dict:
                           "contradicted_latest": (contradicted[a.name][-1]["data"].get("why") if contradicted.get(a.name)
                                                   else None)}
 
+    if live:                                          # a residual that came and went leaves a record (invariant 7)
+        note_residuals(project, residuals, now)
     snap = {"at": now, "live": live, "window": window, "recorded": max(0.0, now - start) if oldest else 0.0,
             "starts": oldest, "before_record": bool(oldest and now < oldest),
             "stocks": stocks, "flows": flows, "loops": loops, "residuals": residuals,
@@ -436,6 +438,9 @@ def _snapshot(project, window: float, now: float | None) -> dict:
     snap["findings"] = findings(project)
     snap["reports"] = [{"id": r["id"], "title": r.get("title") or ""} for r in reports_drafted(project)]   # SPEC §12m
     snap["alarms"] = alarms(project, now)
+    if live:                                          # the engine's own faults open now (faults.py, written on change)
+        from .faults import read_state as faults_open
+        snap["faults"] = faults_open(project.dir)
     if getattr(getattr(project.model, "spec", None), "daemons", None):   # the long-lived runners, as the engine last saw them
         from .daemons.supervise import read_status
         snap["daemons"] = read_status(project.dir)
@@ -444,6 +449,52 @@ def _snapshot(project, window: float, now: float | None) -> dict:
 
 
 FAILING_ASKS = 3   # failed reads in a row after which a sensor waits for the owner (not one blip)
+RESIDUALS = "residuals.json"   # the stocks whose residual is significant now, as last recorded (note_residuals)
+
+
+def note_residuals(project, residuals: dict, now: float) -> list[dict]:
+    """A stock's residual (what its known flows fail to explain, SPEC §8) recorded when it becomes significant
+    (``residual.significant``: how much, of what change, why) and when it no longer is (``residual.subsided``, with
+    since when), never on every look: what was last recorded is kept in ``<state>/residuals.json``, read and written
+    under its lock, so the page, the CLI and the engine looking at once record each change once. A stock no longer
+    checked (no flows, removed) has subsided. Returns the events recorded."""
+    import fcntl
+    import json
+    from pathlib import Path
+    d = getattr(project, "dir", None)
+    if d is None:
+        return []
+    path, out = Path(d) / RESIDUALS, []
+    sig = {n: r for n, r in residuals.items() if r.get("significant")}
+    if not sig and not path.exists():                 # (the common case: nothing to say, nothing taken)
+        return []
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path.with_suffix(".lock"), "w") as lk:
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            try:
+                was = json.loads(path.read_text()) if path.exists() else {}
+            except ValueError:
+                was = {}
+            if not sig and not was:
+                return []
+            for n in sorted(set(sig) - set(was)):
+                r = sig[n]
+                out.append(project.events.add("residual.significant", item=f"stock.{n}", source="ergostat", data={
+                    "stock": n, "unexplained": r["unexplained"], "explained": r["explained"], "change": r["change"],
+                    "hours": r.get("hours"), **({"why": r["why"]} if r.get("why") else {})}))
+                was[n] = now
+            for n in sorted(set(was) - set(sig)):
+                r = residuals.get(n) or {}
+                out.append(project.events.add("residual.subsided", item=f"stock.{n}", source="ergostat", data={
+                    "stock": n, "since": was.pop(n), "unexplained": r.get("unexplained"), "explained": r.get("explained")}))
+            if out:
+                tmp = path.with_suffix(".tmp")
+                tmp.write_text(json.dumps(was))
+                tmp.replace(path)
+    except OSError:
+        return out
+    return out
 
 
 def sensors_failing(project, now: float) -> list[dict]:
@@ -917,8 +968,12 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
     if model is not None and getattr(model, "spec", None) is not None:   # remotes that do not answer (SPEC §4c)
         from .remote import attention as remote_attention
         out += remote_attention(model.spec)
+    if snap.get("faults"):                            # the engine's own: a part of its loop failing, since when, why
+        from .faults import rows as fault_rows
+        out += fault_rows(snap["faults"])
     for name, a in snap.get("alarms", {}).items():
-        out.append({"level": "bad", "what": f"alarm {name}", "says": f"raised since "
+        out.append({"level": "bad", "what": f"alarm {name}", "link": f"/diagram?view=blocks&around=block/{name}",
+                    "says": f"raised since "
                     f"{time.strftime('%H:%M', time.localtime(a['since']))}: {a['watches']} {a['bound']}"})
     from .daemons.supervise import of_daemon
     ds = snap.get("daemons", {})
@@ -928,17 +983,21 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
         if d.get("state") == "failed" or d.get("failed") or (al and time.time() - al.get("at", 0) < 3600):
             part = f"{d['state']}: " if d.get("processes") else ""
             log = f"logs/daemon-{name}#N.log" if d.get("processes") else f"logs/daemon-{name}.log"
-            out.append({"level": "bad", "what": f"daemon {name}", "says": f"{part}{al.get('why') or d.get('why')} "
+            out.append({"level": "bad", "what": f"daemon {name}", "link": _agent_link(name),
+                        "says": f"{part}{al.get('why') or d.get('why')} "
                         f"({time.strftime('%H:%M', time.localtime(al.get('at') or time.time()))}); its log: {log}"})
     for name, a in snap["agents"].items():
         if a["failing"]:
             note = (a["last"] or {}).get("data", {}).get("note", "failed")
-            out.append({"level": "bad", "what": f"agent {name}", "says": f"its last run failed ({note})"})
+            out.append({"level": "bad", "what": f"agent {name}", "link": _agent_link(name),
+                        "says": f"its last run failed ({note})"})
         if a["refused"]:
-            out.append({"level": "warn", "what": f"agent {name}", "says": f"{a['refused']} lines refused "
+            out.append({"level": "warn", "what": f"agent {name}", "link": _refused_link(name),
+                        "says": f"{a['refused']} lines refused "
                         f"(a part it does not fill, or one of ergostat's own event types: ergostat event --type agent.refused)"})
         if a.get("unread"):
-            out.append({"level": "warn", "what": f"agent {name}", "says": f"{a['unread']} lines looked meant for ergostat but "
+            out.append({"level": "warn", "what": f"agent {name}", "link": _agent_link(name),
+                        "says": f"{a['unread']} lines looked meant for ergostat but "
                         f"could not be read (broken JSON, or naming no part or event); they are in its log"})
         if a.get("contradicted"):
             n = a["contradicted"]
@@ -995,7 +1054,9 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                    else {"level": "hint", "what": f"controller {h['controller']}", "controller": h["controller"], "says": h["says"]})
     for name, r in snap["residuals"].items():
         if r["significant"]:
-            out.append({"level": "warn", "what": f"stock {name}", "says": f"changed {fmt(r['change'])}, the known flows explain "
+            out.append({"level": "warn", "what": f"stock {name}", "part": f"stock.{name}",
+                        "link": f"/diagram?around=stock/{name}",
+                        "says": f"changed {fmt(r['change'])}, the known flows explain "
                         f"{fmt(r['explained'])}: {fmt(r['unexplained'])} unexplained" + (f" ({r['why']})" if r.get("why") else "")})
     from .inbox import entries as en
     asks = [{"level": "warn", "what": e["id"], "link": e["link"], "answer": e["verbs"], "kind": e["kind"],   # waiting on a person
@@ -1013,6 +1074,18 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
             for e in snap.get("inbox", []) for by in [e["kind"] == "action" and not e.get("warn") and e.get("why")]]
     out = sorted(out, key=lambda a: LEVELS.get(a["level"], 1))           # problems first, then what waits on a person
     return [a for a in out if a["level"] == "bad"] + asks + [a for a in out if a["level"] != "bad"]
+
+
+def _agent_link(name: str) -> str:
+    """An agent's page (its runs, its daemon's processes: the Agents dashboard's)."""
+    from urllib.parse import quote
+    return f"/agents/{quote(name, safe='')}"
+
+
+def _refused_link(name: str) -> str:
+    """The lines an agent printed that ergostat refused: its ``agent.refused`` events, on the Events page."""
+    from urllib.parse import quote
+    return f"/events?match=agent.refused&item={quote(name, safe='')}"
 
 
 def fmt(x) -> str:

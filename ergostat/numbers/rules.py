@@ -79,7 +79,7 @@ def unitless(p) -> list[dict]:
     cites = _citing(pr.changes(p))
     return [{"id": f"{x.code}@{x.about}", "source": "check", "code": x.code, "about": x.about, "says": x.message,
              "tier": "rule", "check": True} for x in problems if x.code in CHECK_ONLY and not template_made(x.where)
-            and not any(c["state"] != "superseded" for c in cites.get(f"finding:{x.code}@{x.about}", []))]
+            and not any(c["state"] not in ("superseded", "sent-back") for c in cites.get(f"finding:{x.code}@{x.about}", []))]
 
 
 def _answered(p, spec: Spec, raw: dict, requests: list[dict]) -> list[dict]:

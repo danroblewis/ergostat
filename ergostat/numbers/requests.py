@@ -56,7 +56,7 @@ def as_note(x) -> bool:
 
 OPEN = ("open", "proposed", "held")
 LIVE = pr.OPEN                 # a change waiting: checked, testing or passed
-ENDED = ("refused", "failed", "dismissed", "inconclusive")
+ENDED = ("refused", "failed", "rejected", "dismissed", "inconclusive")
 DISMISSAL = ("note", "dismissed_by", "dismissed", "part", "approved_by")   # cleared when it is raised again
 TAKEN_UP = {"check", "craft", "coherence", "fit"}   # the sources the tiers take up (gather's): never a redesign's
 TIERS = {"rule", "ai"}

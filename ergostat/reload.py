@@ -117,6 +117,35 @@ def write_state(state_dir: Path, errors: list[str] | None, version: str | None =
         pass
 
 
+REFUSED, TAKEN = "model.refused", "model.taken"
+
+
+def noted(p, errors: list[str] | None, version: str | None = None) -> dict | None:
+    """``write_state``, and the change recorded (SPEC §9.1): ``model.refused`` (its errors, where, the version still
+    running) when the files are refused, or refused with other errors than before; ``model.taken`` (the version now,
+    since when it was refused, the errors it had) when files refused before load again. Nothing when nothing moved: a
+    model that keeps loading, or the same errors again. The event recorded, if any."""
+    was = read_state(p.dir)
+    write_state(p.dir, errors, version)
+    name = getattr(p.model, "name", None)
+    try:
+        if errors and (was is None or was.get("errors") != list(errors)):
+            return p.events.add(REFUSED, item=name, source="ergostat",
+                                data={"errors": list(errors), "where": where(errors), "running": version,
+                                      "banner": banner(errors), **({"since": was["since"]} if was else {})})
+        if not errors and was is not None:
+            from .numbers import version as ver
+            spec = getattr(p.model, "spec", None)
+            now = ver.version(spec) if spec is not None else None
+            return p.events.add(TAKEN, item=name, source="ergostat",
+                                data={"version": now, "refused_since": was.get("since"), "errors": was.get("errors"),
+                                      "was_running": was.get("running"),
+                                      "refused_for": round(time.time() - float(was.get("since") or time.time()), 3)})
+    except Exception:                                   # noqa: BLE001  (the files' state is written whatever)
+        return None
+    return None
+
+
 def read_state(state_dir: Path) -> dict | None:
     try:
         got = json.loads((Path(state_dir) / STATE).read_text())

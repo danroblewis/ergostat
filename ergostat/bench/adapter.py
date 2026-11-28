@@ -75,7 +75,7 @@ class Loop:
 
     def accepted(self) -> list[dict]:
         """The changes written, oldest first: ``id``, ``time``, ``kind``, ``title``, ``made_by``, the edit, the fit."""
-        xs = [x for x in self.changes().values() if x["status"] == "accepted"]
+        xs = [x for x in self.changes().values() if x["status"] in pr.WRITTEN]
         return sorted(({"id": x["id"], "time": x.get("decided") or 0.0, "kind": x.get("kind"), "title": x.get("title"),
                         "made_by": x.get("made_by"), "edit": x.get("edit") or {}, "applied": x.get("applied") or {},
                         "state": x["state"]} for x in xs), key=lambda x: x["time"])

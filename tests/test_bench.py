@@ -278,5 +278,6 @@ def test_check_finds_a_delay_that_drains_its_own_stock_late(tmp_path):
 def test_verified_and_regressed_are_states_of_the_change_item():
     from ergostat.numbers.proposals import STATUS
     from ergostat.spec.ir import MODEL_CHANGE_STATES, MODEL_MEASURES
-    assert {"verified", "regressed"} <= set(MODEL_CHANGE_STATES) and STATUS["verified"] == STATUS["regressed"] == "accepted"
+    assert {"verified", "regressed"} <= set(MODEL_CHANGE_STATES) and STATUS["verified"] == "verified"
+    assert STATUS["regressed"] == "regressed"                 # written, then flagged: never read as plainly accepted
     assert set(meta.MEASURES) <= set(MODEL_MEASURES)

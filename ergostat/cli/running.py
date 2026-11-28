@@ -191,7 +191,7 @@ def cmd_run(args) -> int:
         if why:
             print(f"the last good model could not be kept ({why})", flush=True)
     _kept()
-    rl.write_state(p.dir, None)
+    rl.noted(p, None)
     name = mdl.file_name(p.model)
     reload = moved = False
     try:
@@ -210,7 +210,7 @@ def cmd_run(args) -> int:
             loaded = time.monotonic() - began
             if fresh is None:                           # each one, so the log alone is enough to fix it
                 watch.refused(due)
-                rl.write_state(p.dir, errors, getattr(r, "version", None))
+                rl.noted(p, errors, getattr(r, "version", None))
                 print(f"{name} changed: {rl.banner(errors)}:", flush=True)
                 for msg in errors:
                     print(f"  {msg}", flush=True)
@@ -219,7 +219,7 @@ def cmd_run(args) -> int:
                     getattr(fresh, "storage", None) != getattr(p.model, "storage", None):
                 # another state directory, format or store: not the same runner any more
                 print(f"{name} changed its name, format or storage: restarting with it (its runs are stopped)", flush=True)
-                rl.write_state(p.dir, None)
+                rl.noted(p, None)
                 reload, moved = True, fresh.name != p.model.name           # (a new name: a new state folder)
                 break
             old = p.model
@@ -228,12 +228,12 @@ def cmd_run(args) -> int:
             except Exception as e:                      # nothing of it was taken: the last one runs as it was
                 watch.refused(due)
                 why = f"{name}: it could not be taken in place ({type(e).__name__}: {e})"
-                rl.write_state(p.dir, [why], getattr(r, "version", None))
+                rl.noted(p, [why], getattr(r, "version", None))
                 print(f"{why}; still running the last good version", flush=True)
                 continue
             watch.took(fresh, due)
             _kept()
-            rl.write_state(p.dir, None)
+            rl.noted(p, None)
             name = mdl.file_name(p.model)
             took = time.monotonic() - began
             n = got["carried"]

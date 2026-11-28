@@ -12,12 +12,12 @@ from ergostat.spec.ir import (
     ACTION,
     MESSAGE,
     MODEL_CHANGE,
-    MODEL_REQUEST,
+    INTERVENTION_CLASS,
     MODELLING_REQUEST,
     action_kind,
     message_kind,
     model_change_kind,
-    model_request_kind,
+    intervention_class_kind,
     modelling_request_kind,
 )
 
@@ -97,11 +97,11 @@ def requests(p) -> dict:
 
 def requests_now(p) -> dict:
     by: dict[str, list] = {}
-    for e in p.events.query(n=None, type=f"{MODEL_REQUEST}.*"):
+    for e in p.events.query(n=None, type=f"{INTERVENTION_CLASS}.*"):
         by.setdefault(e["item"], []).append(e)
     out = {}
     for item, es in by.items():
-        it = its.fold(item, es, model_request_kind())
+        it = its.fold(item, es, intervention_class_kind())
         out[it.fields.get("class") or item] = {**it.fields, "id": item, "state": it.state, "moves": it.moves}
     return out
 
@@ -129,7 +129,7 @@ def stored(p, fam: str, since=None, until=None, states=None) -> dict:
         return messages(p, since, until, n=2000)        # (the status's unrouted messages read the latest 2,000 events)
     if fam == "report":
         return reports(p, until)
-    return {"change": changes, "request": requests, "model-request": requests_now}[fam](p)
+    return {"change": changes, "request": requests, "intervention-class": requests_now}[fam](p)
 
 
 def query(p, type: str, **kw) -> list[dict]:

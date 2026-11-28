@@ -184,7 +184,7 @@ def test_the_drafters_projection_passes_when_it_explains_them_and_waits_for_the_
     assert "1 group has a draft waiting for the judge" in dr.run(p, daily=1.0)["said"]   # not "no events wait"
     got = jd.run(p, "judge")
     x = pr.stored(p)[pid]
-    assert x["state"] == "passed", (x["state"], got["verdicts"])
+    assert x["state"] == "reviewing", (x["state"], got["verdicts"])             # passed; the reviewer reads it next
     assert x["verdict"]["on"] == "events" and x["verdict"]["evidence"]["targeted"] == {"read": 3, "before": 3, "after": 0}
     assert x["explained"] == 3                                                 # what events-taken sums once written
     assert got["accepted"] == 0                                                # structure: the owner's by default

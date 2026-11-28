@@ -835,6 +835,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
     snap = pinned if pinned is not None else live.snapshot(p, _window(q), at)
     if head == "status":
         from .. import rates
+        from ..faults import rows as fault_rows
         from ..runner import running_pid
         running = bool(running_pid(p))
         edited = _edited(live, p, running)
@@ -848,6 +849,7 @@ def _answer(live: Live, path: str, q: dict, project=None, pinned=None):
                 "attention": ([{"level": "bad", "what": "the model", "says": edited["banner"]}] if edited else [])
                 + st.attention(snap, running and snap["live"], m), "loops": snap["loops"], "goals_off": st.goals_off(snap),
                 "sensors_failing": snap.get("sensors_failing", []),
+                "faults": fault_rows(snap.get("faults") or {}),          # the engine's own, open now (faults.py)
                 "sensors_unmeasurable": snap.get("sensors_unmeasurable", []),
                 **({"edited": edited} if edited else {}),
                 **({"held_up": _held_up(p)} if at is None and spec is not None else {}),   # the header's first line

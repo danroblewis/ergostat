@@ -45,14 +45,14 @@ def test_a_field_no_event_fills_fails_the_draft(tmp_path, monkeypatch):
 def test_the_judges_warnings_go_with_a_passed_draft(tmp_path, monkeypatch):
     failed = {"service": "s9", "errorCode": "AccessDenied"}             # a failed call that moves state
     p, x = judged_draft(tmp_path, monkeypatch, DEPLOY, [failed])
-    assert x["state"] == "passed", x["verdict"]
+    assert x["state"] == "reviewing", x["verdict"]                         # passed by the judge: the reviewer's next
     checks = {g["check"]: g for g in x["verdict"]["evidence"]["findings"]}
     assert checks["exit"]["level"] == "warn" and "'done'" in checks["exit"]["says"] and "final:" in checks["exit"]["says"]
     assert checks["failed-calls"]["level"] == "warn" and "errorCode" in checks["failed-calls"]["says"]
     assert "for the reviewer" in x["verdict"]["why"]
     (tmp_path / "f").mkdir()
     _, y = judged_draft(tmp_path / "f", monkeypatch, FINAL)               # declared final: no exit finding
-    assert y["state"] == "passed" and not [g for g in y["verdict"]["evidence"]["findings"] if g["check"] == "exit"]
+    assert y["state"] == "reviewing" and not [g for g in y["verdict"]["evidence"]["findings"] if g["check"] == "exit"]
 
 
 def test_the_mechanical_findings_each_on_its_own(tmp_path):
@@ -86,7 +86,7 @@ events:
 
 def test_the_reviewer_reads_a_projection_change_with_the_projection_checklist(tmp_path, monkeypatch):
     p, x = judged_draft(tmp_path, monkeypatch, DEPLOY)
-    assert x["state"] == "passed" and rv.projections_only(p, p.model.spec, x) == ["deploy"]
+    assert x["state"] == "reviewing" and rv.projections_only(p, p.model.spec, x) == ["deploy"]
     text = rv.prompt(p, p.model.spec, x)
     assert "This change is to the projections alone" in text and "Reviewing a change to the projections" in text
     assert "Failed calls don't move state" in text and '"objects": 3' in text
@@ -107,7 +107,7 @@ def test_a_revise_returns_the_draft_to_the_drafter_with_its_findings(tmp_path, m
         return {"result": json.dumps({"review": {"verdict": "revise", "findings": [{"check": "exit", "says": said}],
                                                  "summary": "declare it final"}}), "usd": 0.01}
     assert rv.run(p, call=call)["verdicts"][0]["verdict"] == "revise"
-    assert pr.changes(p)[x["id"]][0] == "superseded"
+    assert pr.changes(p)[x["id"]][0] == "sent-back"
     ux.sync(p)
     (r,) = ux.open_requests(p)                                                  # open again, for the drafter
     assert r["state"] == "open" and int(r["tried"]["ai"]) == 1

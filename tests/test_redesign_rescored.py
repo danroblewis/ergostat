@@ -59,7 +59,7 @@ def _passed(p, t0: float, raw: dict | None = None) -> str:
     assert got["status"] == "proposed", got["why"]
     jd.run(p, "judge", at=t0)
     x = pr.stored(p)[got["id"]]
-    assert x["state"] == "passed" and x["scored"]["mark"] == _mark(p), x["state"]
+    assert x["state"] in pr.JUDGED and x["scored"]["mark"] == _mark(p), x["state"]   # reviewing: a reviewed kind
     return got["id"]
 
 

@@ -38,12 +38,12 @@ from .ir import (
     ACTION,
     MESSAGE,
     MODEL_CHANGE,
-    MODEL_REQUEST,
+    INTERVENTION_CLASS,
     MODELLING_REQUEST,
     action_kind,
     message_kind,
     model_change_kind,
-    model_request_kind,
+    intervention_class_kind,
     modelling_request_kind,
 )
 from .items import SNAPSHOT, Item, fold
@@ -54,7 +54,7 @@ FAMILIES = {                 # name: (item prefix and type prefix, its projectio
     "report": (REPORT, report_kind, f"{REPORT}.drafted", ()),
     "change": (MODEL_CHANGE, model_change_kind, None, ("kind",)),
     "request": (MODELLING_REQUEST, modelling_request_kind, None, ("code",)),
-    "model-request": (MODEL_REQUEST, model_request_kind, None, ("class",)),
+    "intervention-class": (INTERVENTION_CLASS, intervention_class_kind, None, ("class",)),
 }
 FORGOTTEN = "ergostat.forgotten"
 MARKS = ("loop.*", "trigger.tripped", "trigger.reset", "steptest.offered", "steptest.approved", "ergostat.daemon.failed",

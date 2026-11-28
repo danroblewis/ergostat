@@ -8,7 +8,7 @@ reading: |
   (interventions-per-day, an auxiliary following what is asked; a suppressed class still counted at its rate before)
   has a trend (intervention-trend, an auxiliary: the lower bound of its slope over notify's trend-window, so a rise
   within the record's noise reads 0), and each class resolved asks no more. The modelling requests are items of
-  ergostat's built-in projection ergostat.model-request, counted by state: open, being worked on (investing) or graduated
+  ergostat's built-in projection ergostat.intervention-class, counted by state: open, being worked on (investing) or graduated
   and verifying (open-requests), suppressed (suppressed-requests: a guard removed with nothing automated in its
   place, back to open when the guard is put back) and resolved (resolved-requests; back to open when the class
   intervenes again).
@@ -47,21 +47,21 @@ stocks:
     unit: requests
     description: classes of intervention to model away, open, being worked on, or graduated and verifying
     sensor:
-      projection: ergostat.model-request
+      projection: ergostat.intervention-class
       state: [open, investing, verifying]
       every: ${count-every}
   suppressed-requests:
     unit: requests
     description: classes silenced with nothing automated in their place (still counted at their rate before)
     sensor:
-      projection: ergostat.model-request
+      projection: ergostat.intervention-class
       state: suppressed
       every: ${count-every}
   resolved-requests:
     unit: requests
     description: classes whose processes no longer need a person
     sensor:
-      projection: ergostat.model-request
+      projection: ergostat.intervention-class
       state: resolved
       every: ${count-every}
 auxiliaries:
@@ -89,7 +89,7 @@ flows:
   requests-made:
     to: open-requests
     sensor:
-      projection: ergostat.model-request
+      projection: ergostat.intervention-class
       entering: open
       over: ${over}
   guards-suppressed:
@@ -97,7 +97,7 @@ flows:
     to: suppressed-requests
     driven-by: +stock.open-requests
     sensor:
-      projection: ergostat.model-request
+      projection: ergostat.intervention-class
       entering: suppressed
       over: ${over}
   guards-restored:
@@ -105,7 +105,7 @@ flows:
     to: open-requests
     driven-by: +stock.suppressed-requests
     sensor:
-      projection: ergostat.model-request
+      projection: ergostat.intervention-class
       leaving: suppressed
       over: ${over}
   requests-resolved:
@@ -113,7 +113,7 @@ flows:
     to: resolved-requests
     driven-by: +stock.open-requests
     sensor:
-      projection: ergostat.model-request
+      projection: ergostat.intervention-class
       entering: resolved
       over: ${over}
   requests-reopened:
@@ -121,7 +121,7 @@ flows:
     to: open-requests
     driven-by: +stock.resolved-requests
     sensor:
-      projection: ergostat.model-request
+      projection: ergostat.intervention-class
       leaving: resolved
       over: ${over}
 goals:

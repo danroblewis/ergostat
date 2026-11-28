@@ -10,9 +10,11 @@
 
 A proposal is worked out afresh from the record when the loop is looked at; what the page was last
 shown is what an Accept applies. An accepted edit is checked like any other (the model must still
-compile, else the file is put back) and recorded as ``model.accepted``; a dismissed proposal is not
-offered again until what it depends on in the model changes (``loop.key``). Decisions are kept in
-``<state>/control/decisions.json``."""
+compile, else the file is put back) and recorded on its ``ergostat.model-change`` item (``.made``, then
+``.accepted`` or ``.dismissed``, as every change to the model) and in the model's history (``ergostat.model.changed``,
+with its diff and the loop before and after); a dismissed proposal is not offered again until what it depends on in the
+model changes (``loop.key``). Which were decided is also kept in ``<state>/control/decisions.json``, where the offer
+reads it."""
 
 from __future__ import annotations
 

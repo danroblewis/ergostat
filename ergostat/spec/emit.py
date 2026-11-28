@@ -267,7 +267,11 @@ class Emitter:
         ix = index_for(self.e.p.events, spec, False)
         if ix is None:
             return 0
-        n = drain(ix, self.e.p.events, names)
+        try:
+            n = drain(ix, self.e.p.events, names)
+        except Exception as e:                              # which projections' outboxes, for the engine's fault
+            e.projections = sorted(names)
+            raise
         self.top = -1 if n else top
         return n
 

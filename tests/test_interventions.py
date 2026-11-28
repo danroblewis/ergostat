@@ -16,7 +16,7 @@ from ergostat.cli import main as cli
 from ergostat.inbox import answer, deliver
 from ergostat.inbox import interventions as iv
 from ergostat.numbers import measures
-from ergostat.spec.ir import MODEL_REQUEST
+from ergostat.spec.ir import INTERVENTION_CLASS
 from ergostat.store import Project
 
 from .test_inbox import MODEL, project, seed
@@ -67,7 +67,7 @@ def test_the_interventions_loop_is_drawn_in_all_three_views(tmp_path):
         x for x in spec.stocks if x != "queue")
     assert {"interventions-per-day", "intervention-trend"} <= set(spec.auxiliaries) and spec.goals["interventions-falling"].hold.op == "<="
     assert spec.blocks["remedies"].type == "program"
-    assert MODEL_REQUEST in spec.items and "interventions" in spec.systems
+    assert INTERVENTION_CLASS in spec.items and "interventions" in spec.systems
     assert not [x for x in p.model.problems if x.code == "missing-feedback" and "interventions" in str(x.about)]
     live = Live(p)
     for view, want in (("dynamics", ("interventions-waiting", "open-requests")), ("blocks", ("remedies",))):
@@ -81,7 +81,7 @@ def test_the_interventions_loop_is_drawn_in_all_three_views(tmp_path):
     assert cli(["-C", str(tmp_path), "inbox", "--requests", "--made"]) == 0
     g = api(Live(Project(mdl.load(tmp_path))), "graph", {"view": ["process"], "since": ["1d"],
                                                                    "system": ["interventions"]})   # counted there
-    assert MODEL_REQUEST in {k["name"] for k in g["projections"]}
+    assert INTERVENTION_CLASS in {k["name"] for k in g["projections"]}
 
 
 def test_a_recurring_class_becomes_a_request_with_remedies_ranked_by_time_blocked(tmp_path, capsys):

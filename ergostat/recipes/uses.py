@@ -112,7 +112,7 @@ def evidence(p, spec, use: dict) -> list[dict]:
             out.append({"for": False, "says": f"{wid} is {it.state}", "item": wid})
         if it.kind == MODEL_CHANGE and it.state in ("accepted", "verified"):
             out.append({"for": True, "says": f"{wid} was {it.state}", "item": wid})
-        elif it.kind == MODEL_CHANGE and it.state in ("refused", "failed", "regressed"):
+        elif it.kind == MODEL_CHANGE and it.state in ("refused", "failed", "rejected", "regressed"):
             out.append({"for": False, "says": f"{wid} was {it.state}", "item": wid})
         for e in p.events.query(n=None, item=wid, since=began):
             if e["type"].startswith("claude."):

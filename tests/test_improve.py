@@ -65,8 +65,9 @@ def test_every_project_has_the_built_in_kind_and_none_may_take_its_prefix(tmp_pa
     (tmp_path / "ergostat.yaml").write_text(QUEUE)
     spec, _ = read(tmp_path / "ergostat.yaml")
     k = spec.items[KIND]
-    assert k.id == f"{KIND}/*" and k.states[:5] == ["made", "checked", "testing", "passed", "accepted"]
-    assert {"refused", "failed", "dismissed", "superseded"} <= set(k.states)
+    assert k.id == f"{KIND}/*" and k.states[:6] == ["made", "checked", "testing", "reviewing", "passed", "accepted"]
+    assert {"refused", "failed", "dismissed", "superseded", "sent-back", "rejected"} <= set(k.states)
+    assert {"accepted", "rejected", "sent-back", "superseded"} <= set(k.finished) and "reviewing" not in k.finished
     assert k.on[f"{KIND}.passed"] == "passed"
     (tmp_path / "ergostat.yaml").write_text(QUEUE + "projections:\n  mine:\n    query: key.startswith('ergostat.model-change/')\n    fields:\n      state:\n        values: [a]\n")
     assert any(x.code == "reserved-id" for x in read(tmp_path / "ergostat.yaml")[1])

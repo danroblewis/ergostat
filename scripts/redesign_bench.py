@@ -177,11 +177,11 @@ def seed(p, spec, s: dict) -> None:
             pr.event(p, pid, h["state"], {"verdict": {"verdict": h["state"], "why": h.get("verdict") or ""}})
     for x in s.get("interventions") or []:
         item = iv.request_id(x["class"])
-        p.events.add(f"{iv.MODEL_REQUEST}.opened", item=item, source="ergostat",
+        p.events.add(f"{iv.INTERVENTION_CLASS}.opened", item=item, source="ergostat",
                      data={"class": x["class"], "cause": x["cause"], "count": x["count"], "hours": x.get("hours"),
                            "remedies": iv.remedies(spec, x["class"], None), "why": "it recurs"})
         if x.get("note"):
-            p.events.add(f"{iv.MODEL_REQUEST}.investing", item=item, source="owner", data={"note": x["note"]})
+            p.events.add(f"{iv.INTERVENTION_CLASS}.investing", item=item, source="owner", data={"note": x["note"]})
 
 
 # ---- one case

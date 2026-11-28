@@ -117,7 +117,7 @@ def _loop(p, spec, args) -> int:
         if r is None or r["state"] not in iv.OPEN:
             print(f"no open modelling request for {args.invest!r} (ergostat inbox --stats lists them)", file=sys.stderr)
             return 2
-        p.events.add(f"{iv.MODEL_REQUEST}.investing", item=r["id"], source=args.by or "owner", data={"note": args.note or ""})
+        p.events.add(f"{iv.INTERVENTION_CLASS}.investing", item=r["id"], source=args.by or "owner", data={"note": args.note or ""})
         print(f"{r['id']}: investing (its class's rise is weighted down in the trend while it is worked on)")
         return 0
     if not (args.made or os.environ.get("ERGOSTAT_RUN")):     # a person asking: what waits, and why

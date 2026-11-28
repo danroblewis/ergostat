@@ -18,7 +18,7 @@ from ..durations import human as dur
 from . import proposals as pr
 from . import version as ver
 
-HELD = ("refused", "failed", "inconclusive")
+HELD = ("refused", "failed", "rejected", "inconclusive")
 GROW = 0.25                 # the record grows by this share of the window it was found on before it is tried again
 MIN_WAIT = 600.0            # ... at least this (s)
 MAX_WAIT = 24 * 3600.0      # ... and at most this, however often it was turned away
@@ -43,9 +43,10 @@ def key_raw(raw, by: str) -> str:
 
 
 def turned_away(x: dict) -> bool:
-    """Turned away for what the record said of it: refused at the gate, failed, or inconclusive. A proposal refused
-    for its form (no evidence, an edit that cannot be made, a model that does not compile) is not remembered."""
-    return x.get("state") in ("failed", "inconclusive") or (x.get("state") == "refused" and bool(x.get("gated")))
+    """Turned away for what the record said of it: refused at the gate, failed, rejected by the reviewer, or
+    inconclusive. A proposal refused for its form (no evidence, an edit that cannot be made, a model that does not
+    compile) is not remembered."""
+    return x.get("state") in ("failed", "rejected", "inconclusive") or (x.get("state") == "refused" and bool(x.get("gated")))
 
 
 def _when(x: dict) -> float:

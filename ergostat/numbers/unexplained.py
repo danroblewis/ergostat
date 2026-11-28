@@ -12,7 +12,9 @@ projection's own published events (``source: projection:*``, SPEC §5a, *Emitted
 **Groups.** Never one request an event: by source and type, and, for a type that tells nothing (``GENERIC``: ``log``,
 ``event``, ``message``, an empty one...), by the envelope's shape too (its top-level data keys). Each group is one
 request (``ergostat.modelling-request``, ``source: events``, ``code: events-unexplained``, tier ``events``) with its
-count, its first and last time and a few example event ids; answered when no event of it is unexplained.
+count, its first and last time and a few example event ids; answered when no event of it is unexplained. The request is
+modelling's bookkeeping: the one thing the owner watches is the group's object (``ergostat.unexplained``, ``objects``),
+and every link the owner follows for a group (the inbox's held entry, the Goals row's) is to that object.
 
 **Ignored.** The owner ignores a group in the model, in the modelling template's ``with: ignore-events:`` (a type glob,
 or ``SOURCE TYPE`` globs): it stays explained, as ``ignored``, and raises no request. (Denying a held request in the

@@ -1,13 +1,14 @@
 """The reviewer of changes to the model (SPEC §12e, *The reviewer*): an AI agent that reads a change the judge passed as a
 senior modeller reads a colleague's, deliberately disagreeable, through the review checklists of MODELLING-WELL.md, before
-it is written or reaches the owner. Its verdict is ``pass``, ``revise`` or ``reject``, each with its findings, recorded on
-the change's item (``ergostat.model-change.reviewed``, no move of state):
+it is written or reaches the owner. A change of a reviewed kind the judge passes waits in ``reviewing`` (``queue``). Its
+verdict is ``pass``, ``revise`` or ``reject``, each with its findings, recorded on the change's item
+(``ergostat.model-change.reviewed``), then the change moves:
 
-- ``pass``: the judge's policy may write it, and the inbox offers it to the owner;
-- ``reject``: it fails (``failed``, from the reviewer), so the memory holds the same target back;
-- ``revise``: back to its author (``superseded``, saying so), whose next proposal on the same parts carries the findings
+- ``pass``: to ``passed``: the judge's policy may write it, and the inbox offers it to the owner;
+- ``reject``: to ``rejected``, so the memory holds the same target back;
+- ``revise``: to ``sent-back`` (its author named, saying so), whose next proposal on the same parts carries the findings
   (``revising``, ``review_asked``) and is the second round; a second revise is a reject. A change no author can revise
-  (ergostat's finders, a program) stays passed, the findings beside it, for the owner.
+  (ergostat's finders, a program) goes to ``passed``, the findings beside it, for the owner; as one it could not decide.
 
 The judge's ``reviewed:`` names the kinds that wait for it (the template sets it with ``ai: true``). Each call's cost is
 recorded (``ergostat.model.review-ran``) and counted against the template's daily cap with the redesigner's."""
@@ -71,7 +72,17 @@ def read_for_owner(spec: Spec, x: dict) -> bool:
 
 def due(p, spec: Spec) -> list[dict]:
     """The changes the judge passed that wait for a review, oldest first."""
-    return [x for x in pr.pending(p, spec) if x["state"] == "passed" and unread(spec, x)]
+    return [x for x in pr.pending(p, spec) if x["state"] in pr.JUDGED and unread(spec, x)]
+
+
+def queue(p, spec: Spec, x: dict, kept: bool = False) -> bool:
+    """A change the judge just passed, of a reviewed kind and with no review of it as it stands (``kept``: its review
+    carried by a rescore), moved on to ``reviewing``: under review, not yet passed for the owner or the judge's policy.
+    Whether it was moved."""
+    if kept or x.get("kind") not in kinds(spec):
+        return False
+    pr.event(p, x["id"], "reviewing", {})
+    return True
 
 
 def tries(p, x: dict, failed: bool = False) -> int:
@@ -212,17 +223,19 @@ def record(p, spec: Spec, x: dict, got: dict, by: str = "reviewer", cost: float 
     the one it read (else ``stale``, nothing recorded: it is read again). Returns the verdict as recorded."""
     with pr.locked(p):
         st, now_x = pr.changes(p).get(x["id"], (None, {}))
-        if st != "passed" or seen(now_x) != seen(x):
+        if st not in pr.JUDGED or seen(now_x) != seen(x):
             return STALE
-        return _record(p, spec, x, got, by, cost, now)
+        return _record(p, spec, x, got, by, cost, now, st)
 
 
-def _record(p, spec: Spec, x: dict, got: dict, by: str, cost: float, now: float | None) -> str:
+def _record(p, spec: Spec, x: dict, got: dict, by: str, cost: float, now: float | None, st: str = "reviewing") -> str:
     now = now or time.time()
     verdict, rounds, who = got["verdict"], int(x.get("review_round") or 1), author(spec, x)
     if verdict == UNDECIDED:                    # it could not decide: the owner's, said so
         pr.event(p, x["id"], "reviewed", {"review": {"verdict": verdict, "findings": [], "summary": got["summary"], "by": by,
                                                      "at": now, "round": rounds, "author": who, "read": seen(x)}}, source=by)
+        if st != "passed":
+            pr.event(p, x["id"], "passed", {}, source=by)
         return verdict
     said = "; ".join(f["says"] for f in got["findings"][:3]) or got["summary"]
     if verdict == "revise" and rounds >= 2:
@@ -231,13 +244,15 @@ def _record(p, spec: Spec, x: dict, got: dict, by: str, cost: float, now: float 
               "round": rounds, "author": who, "cost_usd": round(cost, 6), "read": seen(x)}
     pr.event(p, x["id"], "reviewed", {"review": review}, source=by)
     if verdict == "reject":
-        pr.event(p, x["id"], "failed", {"verdict": {"verdict": "failed", "why": f"the reviewer rejected it: {said}", "at": now,
-                                                    "by": by, "judged": x.get("verdict")}}, source=by)
+        pr.event(p, x["id"], "rejected", {"verdict": {"verdict": "rejected", "why": f"the reviewer rejected it: {said}",
+                                                      "at": now, "by": by, "judged": x.get("verdict")}}, source=by)
     elif verdict == "revise" and who is not None:
-        pr.event(p, x["id"], "superseded", {"why": f"sent back to {who} by the reviewer: {said}"}, source=by)
+        pr.event(p, x["id"], "sent-back", {"why": f"sent back to {who} by the reviewer: {said}", "sent_to": who}, source=by)
         if x.get("kind") == "redesign":           # the redesigner takes it up again, the findings in its prompt
             from . import redesign as rd
             rd.ask(p, x.get("system"), by=by, why=f"the reviewer sent {x['id']} back")
+    elif st != "passed":                          # passed; or sent back with no author to take it: the owner's
+        pr.event(p, x["id"], "passed", {}, source=by)
     return verdict
 
 

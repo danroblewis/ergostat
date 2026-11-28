@@ -848,7 +848,7 @@ def submit(p, by: str, raw, run: str | None = None, data: ob.Data | None = None,
                 raise ProposeError(x["review_held"])
             same = next((y for y in pr.stored(p).values() if y["id"] != pid and y.get("version") == made["version"] and
                          unstamped((y.get("edit") or {}).get("diff")) == unstamped(x["edit"]["diff"])
-                         and y["state"] != "refused"), None)
+                         and y["state"] not in ("refused", "sent-back")), None)
             if same is not None:
                 raise ProposeError(f"the same change is {'waiting' if same['status'] == 'pending' else same['status']} "
                                    f"already: {pr.item_of(same['id'])}, made by {same.get('made_by') or 'ergostat'}")

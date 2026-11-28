@@ -37,6 +37,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <SystemTree table={table} scope={scope} carried={carried} />
           <RunState />
           <Failing />
+          <EngineFaults />
           <Waits />
         </span>
         <nav id="nav" aria-label={`${scope || "The top level"}: its dashboards and projections`}>
@@ -219,6 +220,16 @@ function Failing() {
   const tip = xs.map((x) => `${x.sensor}: ${x.why}`).join("\n");
   return <Link id="sensors-failing" className="runstate bad" to={diagramHref({ around: xs[0].part.replace(".", "/") })} title={tip}>
     {xs.length} sensor{xs.length === 1 ? "" : "s"} failing</Link>;
+}
+
+/** The engine's own faults open now (/api/status's faults, faults.py): a part of its loop failing, beside the failing
+ *  sensors; linked to the (first) one's history on the Events page. A fault, not a decision: never in "for you". */
+function EngineFaults() {
+  const { status } = useStatus();
+  const xs: { fault: string; says: string; link: string }[] = status?.faults || [];
+  if (!xs.length) return null;
+  return <Link id="engine-faults" className="runstate bad" to={xs[0].link} title={xs.map((x) => x.says).join("\n")}>
+    {xs.length} engine fault{xs.length === 1 ? "" : "s"}</Link>;
 }
 
 /** How many decisions wait on a person: the inbox's entries (the Inbox page lists the same). */

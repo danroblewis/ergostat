@@ -149,7 +149,7 @@ def change_report(p, spec: Spec, pid: str, data: ob.Data, run: sim.Run, at: floa
                                       "changes nothing the record will show, so no rollout time is tried"],
            "fields": {**t, "rollback": {"how": "revert the change's edit to the model (git revert its commit)", "items": None,
                                         "said": "revert the edit: the model and its forecast are as they were; the record is untouched"},
-                      "risk": risk_level(t, "passed" if x.get("state") in ("passed", "accepted") else None), "confidence": conf},
+                      "risk": risk_level(t, "passed" if x.get("state") in ("reviewing", "passed", "accepted") else None), "confidence": conf},
            "stopped": None, "seconds": round(time.monotonic() - began, 3)}
     lead = f"Low confidence: {conf['worst']}. " if conf["level"] == "low" else ""
     said = (fc["predicts"] or {}).get("said") or "it changes nothing the model forecasts"

@@ -120,7 +120,7 @@ def test_modellings_drafts_sent_back_by_the_reviewer_say_so_with_its_latest_find
     e = entry(p, "events-explained")
     assert e["stuck"] == (f"1 change the drafter made over the last day: 1 sent back by the reviewer "
                           f"(latest: “{finding}”)"), e
-    assert e["stuck_link"] == "/ergostat.model-change?state=superseded&finished=show&q=drafter"
+    assert e["stuck_link"] == "/ergostat.model-change?state=sent-back&finished=show&q=drafter"
     lp = state.snapshot(p)["loops"]["events-explained"]
     (ch,) = [s for s in lp["stuck"]["steps"] if s["step"] == "changes"]
     assert [(c["what"], c["n"]) for c in ch["counts"]] == [("sent-back", 1)]

@@ -77,10 +77,10 @@ def test_interventions_are_selected_per_system_with_their_notes(tmp_path):
     p.events.add("block.advised", item="pusher", source="ergostat", data={"command": 2})
     p.events.add("block.denied", item="pusher", source="owner", data={"note": "pushing now would break the build"})
     item = iv.request_id("alarm:queue-high")
-    p.events.add(f"{iv.MODEL_REQUEST}.opened", item=item, source="ergostat",
+    p.events.add(f"{iv.INTERVENTION_CLASS}.opened", item=item, source="ergostat",
                  data={"class": "alarm:queue-high", "cause": "block reviewer", "count": 7, "hours": 5.0,
                        "remedies": ["add the missing loop: a goal and a controller on the queue"], "why": "it recurs"})
-    p.events.add(f"{iv.MODEL_REQUEST}.investing", item=item, source="owner", data={"note": "it rises every Monday"})
+    p.events.add(f"{iv.INTERVENTION_CLASS}.investing", item=item, source="owner", data={"note": "it rises every Monday"})
     review = "\n".join(rm.interventions(p, spec, "review"))
     assert "- alarm:queue-high: 7 times, 5.0h blocked" in review and '"it rises every Monday"' in review
     assert "request investing" in review and "remedies" not in review          # generic: they misled (redesign-bench)

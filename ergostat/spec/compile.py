@@ -1545,8 +1545,8 @@ class Compiler:
             from .ir import UNEXPLAINED, unexplained_kind
             spec.items[UNEXPLAINED] = unexplained_kind()      # built in, under use: modelling: the unexplained events' groups
         if any(u.get("template") == "interventions" for u in d.uses.values()):
-            from .ir import MODEL_REQUEST, model_request_kind
-            spec.items[MODEL_REQUEST] = model_request_kind()  # built in, with the interventions loop (SPEC §12p)
+            from .ir import INTERVENTION_CLASS, intervention_class_kind
+            spec.items[INTERVENTION_CLASS] = intervention_class_kind()  # built in, with the interventions loop (SPEC §12p)
         self.claims(spec)
         from ..decisions.kinds import builtin as intent_kinds
         spec.items.update(intent_kinds())                    # built in: the owner's decisions and corrections (SPEC §5a)

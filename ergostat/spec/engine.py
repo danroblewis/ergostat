@@ -169,6 +169,8 @@ class Engine:
         self.joins = Joins(self)                      # parents moved on by their children (SPEC §5a, Join)
         from .emit import Emitter
         self.emitter = Emitter(self)                  # what projections publish from their objects (SPEC §5a, emit:)
+        from ..faults import Faults
+        self.faults = Faults(project, say)            # its own faults, recorded on change (SPEC §9.1)
         self.compute = None                           # the sessions with the pools' nodes, once a model has pools (§12s.4)
         # the loop (``_schedule``): readings asked for, taken a batch at a time; commands and queries read by a fixed
         # pool, counts of items from what the fold keeps (counts.py); then one pass over what changed (scale.md #1, #4)
@@ -1257,8 +1259,9 @@ class Engine:
             try:
                 from ..workspaces import leases
                 leases.run_ended(self.p, spec, ready.item, begun["id"], ready.lease)
+                self.faults.ok(f"block/{b.name}/workspace")
             except Exception as e:
-                self.say(f"{b.name}: workspace: {type(e).__name__}: {e}")
+                self.faults.failed(f"block/{b.name}/workspace", e, f"{b.name}'s workspace release")
         failed = bool(note) and note not in (old.STOPPED_WITH_US, STOPPED_BY_OWNER) and not ready.full
         if outcome is not None:
             outcome.update({"exit": code, "note": note, "nack": said.nack, "stopped": note in (old.STOPPED_WITH_US, STOPPED_BY_OWNER)})
@@ -1275,8 +1278,9 @@ class Engine:
             outcome["done"] = lambda: adopt.let_go(*kept_end)
         try:                                                     # its numbers as series of its block (SPEC §9.1)
             costs_record.write_series(self.p, b.name, data, ended["time"])
+            self.faults.ok(f"block/{b.name}/costs")
         except Exception as e:
-            self.say(f"{b.name}: its costs: {type(e).__name__}: {e}")
+            self.faults.failed(f"block/{b.name}/costs", e, f"{b.name}'s run costs")
         self.after_end(b, spec, begun, data, said, failed, given, stdin, tail, unread, logged=rl is not None)
         if kept_end:                                             # (its end's steps done: not again by the next engine)
             adopt.settled(kept_end[0])
@@ -1295,23 +1299,29 @@ class Engine:
                 try:
                     from ..repair import capture
                     capture.failed(self.p, spec, b, begun, data, stdin, tail)   # (its own file's, only)
+                    self.faults.ok(f"block/{b.name}/failure")
                 except Exception as e:
-                    self.say(f"{b.name}: its failure: {type(e).__name__}: {e}")
+                    self.faults.failed(f"block/{b.name}/failure", e, f"{b.name}'s failure triage")
         elif code == 0 and not note and logged and b.type in ("program", "ai") and spec.items.get("ergostat.failure"):
             try:                                                 # an error it caught and printed (SPEC §12r)
                 if unread:                                       # (unread: nothing recorded, and said)
                     raise OSError(unread)
                 from ..repair import capture
                 capture.swallowed(self.p, spec, b, begun, tail, stdin)
+                self.faults.ok(f"block/{b.name}/swallowed")
             except Exception as e:
-                self.say(f"{b.name}: its swallowed check: {type(e).__name__}: {e}")
+                self.faults.failed(f"block/{b.name}/swallowed", e, f"{b.name}'s swallowed-error check")
         if said.refused:
             self.say(f"{b.name}: {said.refused[0]}")
         if said.claims:                                          # what it said it did, checked by ergostat (SPEC §12g)
             from ..claims import checks
-            for c in checks.check_all(self.p, spec, said.claims):
-                if c["state"] == "contradicted":
-                    self.say(f"{b.name}: claim contradicted: {c['says']!r}: {c['why']}")
+            try:
+                for c in checks.check_all(self.p, spec, said.claims):
+                    if c["state"] == "contradicted":
+                        self.say(f"{b.name}: claim contradicted: {c['says']!r}: {c['why']}")
+                self.faults.ok(f"block/{b.name}/claims")
+            except Exception as e:
+                self.faults.failed(f"block/{b.name}/claims", e, f"{b.name}'s claims check")
         if spec.contexts:                                        # how the work each recipe started turned out
             self.outcomes()
         if not failed and b.params.get("review"):                # who reviews its work, and how deeply, by its trust
@@ -1751,8 +1761,9 @@ class Engine:
                 spec = self.spec
                 try:
                     timed, timed_blocks, judges, crons, nxt = self._plan(spec, crons, nxt)
+                    self.faults.ok("schedules")
                 except Exception as e:
-                    self.say(f"schedules: {type(e).__name__}: {e}")
+                    self.faults.failed("schedules", e, "the schedules")
                 mono = time.monotonic()                          # a shorter every holds from now; a longer, from the next
                 for k, every in [(s.series, bounds.pace(spec, s, s.every or 60.0)) for s in timed] + [
                         (f"block/{b.name}", bounds.pace(spec, b, b.every)) for b in timed_blocks]:
@@ -1796,26 +1807,22 @@ class Engine:
             if mono - last_sweep >= SWEEP:                       # the owner's messages: routed, finished work followed up
                 last_sweep = mono
                 threading.Thread(target=self._sweep, daemon=True).start()
-            try:
-                self.joins.look()                                # parents their children moved on: what was written since
-            except Exception as e:
-                self.say(f"joins: {type(e).__name__}: {e}")
-            try:
-                self.emitter.look()                              # what projections publish: their outboxes recorded
-            except Exception as e:
-                self.say(f"emit: {type(e).__name__}: {e}")
-            try:
-                self.triggers.look()                             # blocks started by an event: what was written since
-            except Exception as e:
-                self.say(f"triggers: {type(e).__name__}: {e}")
+            for part, look in (("joins", self.joins.look), ("emit", self.emitter.look), ("triggers", self.triggers.look)):
+                try:                                             # joins: parents their children moved on; emit: what
+                    look()                                       # projections publish, their outboxes recorded;
+                    self.faults.ok(part)                         # triggers: blocks started by an event
+                except Exception as e:
+                    names = getattr(e, "projections", None)
+                    self.faults.failed(part, e, f"emit for projection {', '.join(names)}" if names else part)
             tick = mono - last_eval >= TICK                      # the clock moves schedules, timers, delays
             if tick:
                 last_eval = mono
             try:
                 passed = self._readings(tick)
+                self.faults.ok("evaluating")
             except Exception as e:
                 passed = False
-                self.say(f"evaluating: {type(e).__name__}: {e}")
+                self.faults.failed("evaluating", e, "evaluating")
                 reports_crash.noted(self.p, e, "engine")         # drafted as a report for the owner (SPEC §12m)
             if passed:
                 self.stop.wait(BATCH)                            # what lands meanwhile is the next batch
@@ -1829,20 +1836,23 @@ class Engine:
             try:
                 from ..messages import deliver
                 deliver.sweep(self.p, self.spec)
+                self.faults.ok("messages")
             except Exception as e:
-                self.say(f"messages: {type(e).__name__}: {e}")
+                self.faults.failed("messages", e, "the messages' sweep")
             if self.spec.workspaces:                             # leases ended: workspaces held, or cleaned (SPEC §12k)
                 try:
                     from ..workspaces import leases
                     self.lease_seq = leases.sweep(self.p, self.spec, self.lease_seq)
+                    self.faults.ok("workspaces")
                 except Exception as e:
-                    self.say(f"workspaces: {type(e).__name__}: {e}")
+                    self.faults.failed("workspaces", e, "the workspaces' sweep")
             if self.spec.actions:                                # approved actions no one ran
                 try:
                     from ..actions import gate
                     gate.sweep(self.p, self.spec)
+                    self.faults.ok("actions")
                 except Exception as e:
-                    self.say(f"actions: {type(e).__name__}: {e}")
+                    self.faults.failed("actions", e, "the actions' sweep")
             if getattr(self.spec, "notify", None):              # what newly waits on a person, sent (SPEC §12o)
                 from ..inbox import deliver
                 deliver.start(self.p, self.spec, self.say)

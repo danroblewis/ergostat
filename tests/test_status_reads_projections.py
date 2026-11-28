@@ -22,7 +22,7 @@ from ergostat import model as mdl
 from ergostat import segments, state
 from ergostat.inbox import entries, interventions, stats
 from ergostat.spec import itemindex, projections
-from ergostat.spec.ir import ACTION, MESSAGE, MODEL_CHANGE, MODEL_REQUEST, MODELLING_REQUEST
+from ergostat.spec.ir import ACTION, MESSAGE, MODEL_CHANGE, INTERVENTION_CLASS, MODELLING_REQUEST
 from ergostat.store import Project
 from tests import status_before
 
@@ -74,7 +74,7 @@ def _seed(p, now: float) -> int:
         if i % 4 == 0:
             add(f"{MODELLING_REQUEST}.dismissed", q, t0 + 900, {"note": "later"}, "owner")
     for i in range(12):
-        add(f"{MODEL_REQUEST}.opened", f"{MODEL_REQUEST}/k{i:02d}", t(), {"class": f"action:c{i}", "rate": 1.0})
+        add(f"{INTERVENTION_CLASS}.opened", f"{INTERVENTION_CLASS}/k{i:02d}", t(), {"class": f"action:c{i}", "rate": 1.0})
     for b in [b for b in spec.blocks.values() if b.type == "person"][:12]:
         for j in range(6):
             t0 = now - 3600 * (j + 1) - r.uniform(0, 1800)

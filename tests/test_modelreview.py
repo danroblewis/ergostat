@@ -86,9 +86,11 @@ def test_the_reviewer_is_there_only_with_ai_and_tells_the_judge_what_it_reviews(
 def test_a_pass_lets_the_judge_write_and_the_verdict_is_an_event_on_the_item(tmp_path):
     p = judged(tmp_path)
     pid = passed_redesign(p)
-    assert pr.stored(p)[pid]["state"] == "passed"                       # promoted, but waiting for the reviewer
+    assert pr.stored(p)[pid]["state"] == "reviewing"                    # promoted, but waiting for the reviewer
+    assert pr.stored(p)[pid]["status"] == "pending"
     out = rv.run(p, call=answers(PASS))
     assert out["verdicts"] == [{"id": pid, "verdict": "pass"}]
+    assert pr.stored(p)[pid]["state"] == "passed"                       # the reviewer's pass: passed, for the policy
     ev = p.events.query(n=None, type="ergostat.model-change.reviewed")
     assert len(ev) == 1 and ev[0]["item"] == pr.item_of(pid) and ev[0]["source"] == "reviewer"
     assert ev[0]["data"]["review"]["summary"].startswith("a description")
@@ -102,8 +104,9 @@ def test_a_reject_fails_the_change_with_its_reasons(tmp_path):
     pid = passed_redesign(p)
     rv.run(p, call=answers(REJECT))
     x = pr.stored(p)[pid]
-    assert x["state"] == "failed" and x["review"]["verdict"] == "reject"
+    assert x["state"] == "rejected" and x["status"] == "rejected" and x["review"]["verdict"] == "reject"
     assert "busy explains nothing" in x["verdict"]["why"] and x["verdict"]["by"] == "reviewer"
+    assert x["verdict"]["judged"]["verdict"] == "passed"                # the judge's verdict it read, kept beside it
 
 
 def test_a_revise_goes_back_to_its_author_and_the_next_proposal_carries_the_findings(tmp_path):
@@ -112,7 +115,9 @@ def test_a_revise_goes_back_to_its_author_and_the_next_proposal_carries_the_find
     assert got["status"] == "proposed", got["why"]
     jd.run(p, "judge")
     rv.run(p, call=answers(REVISE))
-    assert pid_state(p, got["id"]) == "superseded"
+    assert pid_state(p, got["id"]) == "sent-back"
+    back = pr.stored(p)[got["id"]]                                       # kept in the list, not hidden as superseded
+    assert back["status"] == "sent-back" and back["sent_to"] == "modeller" and back["why"].startswith("sent back to modeller")
     again = im.submit(p, "modeller", {**DESCRIBE, "title": "triage described again"})
     x = pr.stored(p)[again["id"]]
     assert x["revising"] == got["id"] and x["review_round"] == 2
@@ -146,8 +151,8 @@ def test_two_revises_on_one_change_mean_reject(tmp_path):
     out = rv.run(p, call=answers(REVISE))
     assert out["verdicts"] == [{"id": second, "verdict": "reject"}]
     x = pr.stored(p)[second]
-    assert x["state"] == "failed" and "sent back once already" in x["verdict"]["why"]
-    assert pid_state(p, first) == "superseded"
+    assert x["state"] == "rejected" and "sent back once already" in x["verdict"]["why"]
+    assert pid_state(p, first) == "sent-back"
     other = {**DESCRIBE, "title": "a third time", "edit": {"part": "stock.triage", "set": {"description": "alerts waiting"}}}
     held = im.submit(p, "modeller", other)                                 # rejected: the memory holds it back
     assert held["status"] == "not-proposed" and "held back" in held["why"]
@@ -195,7 +200,7 @@ def test_a_review_of_an_earlier_version_of_the_same_change_does_not_carry_over(t
     pr.event(p, pid, "checked", {})
     jd.run(p, "judge")
     x = pr.stored(p)[pid]
-    assert x["state"] == "passed" and rv.review_of(x) is None and rv.awaiting(p.model.spec, x)
+    assert x["state"] == "reviewing" and rv.review_of(x) is None and rv.awaiting(p.model.spec, x)
     assert [y["id"] for y in rv.due(p, p.model.spec)] == [pid]           # read again
 
 
@@ -208,14 +213,14 @@ def test_a_change_carried_and_passed_again_during_its_review_is_not_passed_by_it
         pr.event(p, pid, "checked", {})
         time.sleep(0.01)
         jd.run(p, "judge")
-        assert pr.stored(p)[pid]["state"] == "passed"
+        assert pr.stored(p)[pid]["state"] == "reviewing"
         return first(text, model, timeout)
     assert rv.run(p, call=slow)["verdicts"] == [{"id": pid, "verdict": rv.STALE}]
     x = pr.stored(p)[pid]
     assert p.events.query(n=None, type="ergostat.model-change.reviewed") == []
     assert rv.review_of(x) is None and rv.awaiting(p.model.spec, x)
     jd.run(p, "judge")
-    assert pr.stored(p)[pid]["state"] == "passed"                       # nothing written that nobody reviewed
+    assert pr.stored(p)[pid]["state"] == "reviewing"                    # nothing written that nobody reviewed
     rv.run(p, call=answers(PASS))                                        # read again, as it is now
     assert rv.review_of(pr.stored(p)[pid])["read"] == rv.seen(pr.stored(p)[pid])
 
@@ -298,7 +303,7 @@ def test_with_the_reviewer_on_a_policy_auto_change_waits_for_its_pass(tmp_path):
         p = judged(tmp_path / (reviewed or "none").strip("[]").replace(", ", "-"), reviewed=reviewed)
         pid = im.submit(p, "modeller", DESCRIBE)["id"]
         jd.run(p, "judge")
-        assert pr.stored(p)[pid]["state"] == ("accepted" if written else "passed")
+        assert pr.stored(p)[pid]["state"] == ("accepted" if written else "reviewing")
         if not written:
             rv.run(p, call=answers(PASS))
             jd.run(p, "judge")
@@ -371,7 +376,7 @@ def test_the_reviews_and_the_misses_are_measured(tmp_path):
     m = meta.all_of(p)
     assert m["ergostat.model.reviews-passed"] == 1 and m["ergostat.model.reviews-rejected"] == 1
     assert m["ergostat.model.reviews-revised"] == 0 and m["ergostat.model.review-misses"] == 1
-    assert pr.stored(p)[pid]["state"] == "failed"
+    assert pr.stored(p)[pid]["state"] == "rejected"
 
 
 def test_calls_on_an_earlier_version_do_not_count_toward_giving_up(tmp_path):
@@ -386,7 +391,7 @@ def test_calls_on_an_earlier_version_do_not_count_toward_giving_up(tmp_path):
         return first(text, model, timeout)
     assert rv.run(p, call=rejudged)["verdicts"][0]["verdict"] is None
     x = pr.stored(p)[pid]
-    assert x["state"] == "passed" and rv.tries(p, x) == 0                # that call read the earlier version
+    assert x["state"] == "reviewing" and rv.tries(p, x) == 0             # that call read the earlier version
     for _ in range(rv.TRIES - 1):                                        # not the owner's until three on this one
         assert rv.run(p, call=answers("no idea"))["verdicts"][0]["verdict"] is None
     assert rv.run(p, call=answers("no idea"))["verdicts"] == [{"id": pid, "verdict": rv.UNDECIDED}]
@@ -400,7 +405,7 @@ def test_a_review_of_an_earlier_version_is_neither_shown_to_its_author_nor_count
     pr.event(p, pid, "revised", {"title": "busy read, made again"})     # made again under the same id, judged again
     pr.event(p, pid, "checked", {})
     jd.run(p, "judge")
-    assert pr.stored(p)[pid]["state"] == "passed" and rv.memory(p, "redesigner") == []
+    assert pr.stored(p)[pid]["state"] == "reviewing" and rv.memory(p, "redesigner") == []
     pr.accept(p, pid, {"at": time.time(), "window": 600.0})              # the owner accepts it, its pass out of date
     pr.event(p, pid, "regressed", {"why": "the forecast is better without it"})
     assert rv.counts(p, 0, time.time() + 1)["missed"] == 0
@@ -446,4 +451,4 @@ def test_the_revise_loop_is_bounded_and_a_failed_second_round_still_counts(tmp_p
     refused = im.submit(p, "modeller", other)
     assert refused["status"] == "not-proposed" and "the reviewer sent back 2 changes" in refused["why"]
     assert not due._sent_back({"state": "failed", "review": {"verdict": "revise"}})
-    assert due._sent_back({"state": "superseded", "review": {"verdict": "revise"}})   # not turned away, no rest
+    assert due._sent_back({"state": "sent-back", "review": {"verdict": "revise"}})    # not turned away, no rest

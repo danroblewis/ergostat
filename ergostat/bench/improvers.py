@@ -178,7 +178,7 @@ class StandIn:
             return []
         v = ver.version(spec)
         for x in loop.changes().values():                  # what was failed or refused on this version: not again
-            if x["state"] in ("failed", "refused") and x.get("made_by") == self.name:
+            if x["state"] in ("failed", "rejected", "refused") and x.get("made_by") == self.name:
                 self.tried.add(f"{x.get('version')}:{x.get('title')}")
         read = {s.series for kind in (spec.stocks, spec.flows, spec.auxiliaries) for x in kind.values() for s in x.sensors.values()}
         orphans = sorted({row["series"].split("/", 1)[1].split(".")[0] for row in p.measurements.series()
@@ -351,7 +351,8 @@ class AI:
 
     def propose(self, p, loop, at: float, data: ob.Data) -> list[dict]:
         for x in loop.changes().values():
-            if x.get("made_by") == self.name and x["state"] in ("failed", "refused", "accepted", "superseded"):
+            if x.get("made_by") == self.name and x["state"] in ("failed", "rejected", "refused", "accepted", "superseded",
+                                                                 "sent-back"):
                 line = f"- {x.get('title')}: {x['state']}" + (f" ({(x.get('verdict') or {}).get('why') or x.get('why') or ''})")
                 if line not in self.history:
                     self.history.append(line)

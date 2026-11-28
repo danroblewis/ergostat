@@ -188,7 +188,7 @@ def _requests(p, spec, now: float) -> list[dict]:
     # ``fold``: alike requests (one code, one asker) answered together on the page; ``system``: their part's
     return [{"id": f"request/{r['id']}", "kind": "request", "time": r.get("raised") or now,
              "verbs": ["approve", "deny"] if rq.approvable(spec, r) else ["deny"],
-             "link": f"/item/{MODELLING_REQUEST}/{r['id']}", "class": f"request:{r.get('code')}",
+             "link": _request_link(r), "class": f"request:{r.get('code')}",
              "summary": f"{str(r.get('says') or r.get('code')).rstrip('.')}. Modelling cannot decide it"
                         + (f": {r['why']}" if r.get("why") else "") + "."
                         + ((" Approve hands it back to the drafter." if r.get("source") == "events" else
@@ -200,6 +200,15 @@ def _requests(p, spec, now: float) -> list[dict]:
              "fold": f"{r.get('code')}|{r.get('source')}", "about": r.get("about"),
              "system": spec.owner(ref) if (ref := Ref.parse(r.get("about"))) else None}
             for r in rq.stored(p).values() if r["state"] == "held"]
+
+
+def _request_link(r: dict) -> str:
+    """Where a held request is read: a group of unexplained events at its ``ergostat.unexplained`` object (the request
+    is modelling's bookkeeping, the group the thing the owner watches); any other at its request."""
+    from ..spec.ir import UNEXPLAINED
+    if r.get("source") == "events" and str(r.get("about") or "").startswith("events:"):
+        return f"/item/{UNEXPLAINED}/{r['about'].removeprefix('events:')}"
+    return f"/item/{MODELLING_REQUEST}/{r['id']}"
 
 
 def entries(p, spec=None, now: float | None = None) -> list[dict]:

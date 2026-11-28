@@ -20,6 +20,8 @@ BECAME = {"checked": "proposed, not judged yet", "testing": "being judged", "pas
           "accepted": "accepted by the owner (written)", "verified": "accepted, and its forecast held",
           "regressed": "accepted, then flagged: the model forecast better without it", "failed": "judged NOT better",
           "refused": "refused (never proposed)", "dismissed": "DISMISSED by the owner",
+          "reviewing": "judged better, with the reviewer", "sent-back": "SENT BACK by the reviewer",
+          "rejected": "REJECTED by the reviewer", "superseded": "superseded (the model moved)",
           "inconclusive": "inconclusive (too little record)"}
 
 

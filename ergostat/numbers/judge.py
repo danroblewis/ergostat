@@ -507,12 +507,13 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
                     except rr.Unreadable as e:              # left checked, for a pass that can read it
                         blind = str(e)
                 continue
-            if x["state"] != "passed" and x.get("kind") in WORDING:
+            if x["state"] not in pr.JUDGED and x.get("kind") in WORDING:
                 verdict, why = wording(x)
                 if x["state"] == "checked":                  # tested like any change, on what check says of it
                     pr.event(p, x["id"], "testing", {"testing": now, "judged_by": by})
                     out["testing"] += 1
                 pr.event(p, x["id"], verdict, {"verdict": {"verdict": verdict, "why": why, "at": now, "by": by}})
+                _review_next(p, spec, x, verdict)
                 out[verdict] += 1
                 out["verdicts"].append({"id": x["id"], "verdict": verdict, "why": why})
                 continue
@@ -532,10 +533,11 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
                                                            "on": "events", "evidence": ev},
                                                "explained": max(0, int(t.get("before") or 0) - int(t.get("after") or 0))
                                                if verdict == "passed" else 0})
+                _review_next(p, spec, x, verdict)
                 out[verdict] += 1
                 out["verdicts"].append({"id": x["id"], "verdict": verdict, "why": why})
                 continue
-            if x["state"] == "passed" or x.get("kind") not in JUDGED:
+            if x["state"] in pr.JUDGED or x.get("kind") not in JUDGED:
                 continue
             since = x.get("made") or x.get("created") or now
             looked = float(x.get("looked") or 0.0)            # the record judged when it was last looked at
@@ -606,9 +608,10 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
                                                       "windows": results, "pooled": stat, "alpha": ALPHA, "held": held,
                                                       "by": by, "warm_up": nd["warm_up"], "tau": nd["tau"],
                                                       "needs": nd["needs"], "scored": nd["stocks"]}})
+            _review_next(p, spec, x, state)
             out[state] += 1
             out["verdicts"].append({"id": x["id"], "verdict": state, "why": why})
-        waiting = [y for y in pr.pending(p, spec) if y.get("kind") == REDESIGN and y["state"] == "passed"] \
+        waiting = [y for y in pr.pending(p, spec) if y.get("kind") == REDESIGN and y["state"] in pr.JUDGED] \
             if any(y.get("kind") == REDESIGN for y in xs) else []     # (no redesign pending: the record not folded again)
         try:                                                 # a redesign waiting for the owner, scored again as the
             if blind:                                        # record it was judged on moves (redesign_record)
@@ -670,6 +673,14 @@ def run(p, by: str = "judge", at: float | None = None, most: int = MOST) -> dict
     return out
 
 
+def _review_next(p, spec: Spec, x: dict, verdict: str | None, kept: bool = False) -> None:
+    """A change just passed, of a kind the reviewer reads: on to ``reviewing`` (``reviewer.queue``), so it never reads
+    passed while the reviewer has yet to read it."""
+    if verdict == "passed":
+        from . import reviewer as rv
+        rv.queue(p, spec, x, kept)
+
+
 def judge_redesign(p, x: dict, now: float, by: str, out: dict, first: bool = False) -> str | None:
     """A redesign judged by its scorecard on the record as it is (under the proposals' lock): its first judging
     (``first``) or a rescore. The verdict says what it read (``scored``) and clears ``rescoring`` and
@@ -695,6 +706,7 @@ def judge_redesign(p, x: dict, now: float, by: str, out: dict, first: bool = Fal
     kept = {"review": {**r, "read": rv.seen({**x, "verdict": v}), "kept": now}} if r else {}
     pr.event(p, x["id"], verdict, {"verdict": v, "scored": scored, "rescoring": False, "rescore_error": None,
                                    **({"scorecard": card} if card else {}), **kept})
+    _review_next(p, p.model.spec, x, verdict, kept=bool(kept))
     out[verdict] += 1
     out["verdicts"].append({"id": x["id"], "verdict": verdict, "why": why, **({} if first else {"rescored": True})})
     return verdict

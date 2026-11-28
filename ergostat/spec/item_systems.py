@@ -20,7 +20,7 @@ from __future__ import annotations
 BUILT_IN = "ergostat"
 OTHER = "other"
 TITLES = {f"ergostat.{k}": v for k, v in {
-    "model-change": "Model changes", "model-request": "Model requests", "modelling-request": "Modelling requests",
+    "model-change": "Model changes", "intervention-class": "Model requests", "modelling-request": "Modelling requests",
     "claim": "Claims", "decision": "Decisions",
     "correction": "Corrections", "message": "Messages", "verdict": "Verdicts", "context": "Context uses",
     "report": "Reports", "action": "Actions", "workspace": "Workspaces", "failure": "Failures"}.items()}

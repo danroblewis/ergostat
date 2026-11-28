@@ -101,9 +101,14 @@ MODEL_MEASURES = {                 # the model's own quality (SPEC §12e), read 
     "ergostat.model.review-misses": "changes the reviewer passed that the prediction check later flagged for revert",
 }
 MODEL_CHANGE = "ergostat.model-change"   # the built-in projection: every change to the model, made, judged and decided
-MODEL_CHANGE_STATES = ["made", "checked", "testing", "passed", "accepted", "refused", "failed", "dismissed", "superseded",
+MODEL_CHANGE_STATES = ["made", "checked", "testing",
+                       "reviewing",               # the judge passed it; a reviewed kind waits for the reviewer's verdict
+                       "passed", "accepted", "refused", "failed", "dismissed", "superseded",
+                       "sent-back", "rejected",   # the reviewer's: back to its author, or turned away (SPEC §12e)
                        "verified", "regressed",   # verified, regressed: an accepted change scored again later (SPEC §12f)
                        "inconclusive"]            # the record held out could not tell it from the model as it is
+MODEL_CHANGE_FINISHED = ["accepted", "verified", "regressed", "refused", "failed", "rejected", "sent-back", "dismissed",
+                         "superseded", "inconclusive"]   # where a change's life ends (a written one is scored again later)
 JUDGE_PORTS = ("testing", "passed", "failed", "accepted", "inconclusive")
 MODELLING_REQUEST = "ergostat.modelling-request"   # the built-in projection: work for modelling, raised from what check finds
 MODELLING_REQUEST_STATES = ["open", "proposed", "held", "answered", "dismissed"]
@@ -400,7 +405,8 @@ def model_change_kind() -> ItemKind:
     return ItemKind(MODEL_CHANGE, f"{MODEL_CHANGE}/*", list(MODEL_CHANGE_STATES), on,
                     ["title", "kind", "made_by", "confidence", "verdict"], {}, None,
                     "every change to the model: made by a block, ergostat's own finders or the owner; checked, judged, "
-                    "and accepted or not (built in, SPEC §12e)")
+                    "reviewed (passed, sent back to its author, or rejected) and accepted or not (built in, SPEC §12e)",
+                    finished=list(MODEL_CHANGE_FINISHED))
 
 
 def claim_kind() -> ItemKind:
@@ -473,14 +479,14 @@ def bypass_kind() -> ItemKind:
                     "SPEC §12k)", sealed=True)
 
 
-MODEL_REQUEST = "ergostat.model-request"   # the built-in projection: a class of intervention to model away (SPEC §12p)
-MODEL_REQUEST_STATES = ["open", "investing", "verifying", "suppressed", "resolved"]
+INTERVENTION_CLASS = "ergostat.intervention-class"   # the built-in projection: a class of intervention to model away (SPEC §12p)
+INTERVENTION_CLASS_STATES = ["open", "investing", "verifying", "suppressed", "resolved"]
 
 
-def model_request_kind() -> ItemKind:
-    on = {f"{MODEL_REQUEST}.{s}": s for s in ("investing", "resolved", "suppressed")}
-    on.update({f"{MODEL_REQUEST}.opened": "open", f"{MODEL_REQUEST}.graduated": "verifying"})
-    return ItemKind(MODEL_REQUEST, f"{MODEL_REQUEST}/*", list(MODEL_REQUEST_STATES), on,
+def intervention_class_kind() -> ItemKind:
+    on = {f"{INTERVENTION_CLASS}.{s}": s for s in ("investing", "resolved", "suppressed")}
+    on.update({f"{INTERVENTION_CLASS}.opened": "open", f"{INTERVENTION_CLASS}.graduated": "verifying"})
+    return ItemKind(INTERVENTION_CLASS, f"{INTERVENTION_CLASS}/*", list(INTERVENTION_CLASS_STATES), on,
                     ["class", "cause", "count", "hours", "rank"], {}, None,
                     "a class of intervention (approvals, requests, alarms, notifications) to model away: its cause and "
                     "candidate remedies; resolved only when its process no longer needs a person (built in, SPEC §12p)")

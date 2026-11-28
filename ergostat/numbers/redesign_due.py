@@ -30,7 +30,7 @@ COOL = 6 * 3600.0            # the rest after a redesign judged not better, refu
 DAILY = 86400.0              # the scheduled review
 STRUCTURAL = {"many-cloud-inflows", "projection-enters-many-times"}
 WRONG = {"measured-not-caused", "loop-not-identifiable"}
-TURNED = ("refused", "superseded", "failed", "inconclusive", "dismissed")
+TURNED = ("refused", "superseded", "failed", "rejected", "inconclusive", "dismissed")
 REFINERS = ("fixer", "modeller", "improver", "improver-by-hand", "ergostat")
 
 
@@ -145,7 +145,7 @@ def signature(spec: Spec, unit: str, kinds: tuple[str, ...] = ALL) -> str:
                      + [[f"parameter.{n}", ver._plain(spec.parameters.get(n))] for n in sorted(used)])
 
 
-ENDED = ("failed", "refused", "dismissed", "superseded")
+ENDED = ("failed", "rejected", "refused", "dismissed", "superseded")
 
 
 def resting(p, spec: Spec, unit: str, now: float, ran: list | None = None, changes: dict | None = None) -> str | None:
@@ -196,7 +196,7 @@ def unfinished(p, ran: list, now: float) -> None:
 
 def _sent_back(x: dict) -> bool:
     """Sent back to its author by the reviewer: not turned away, and no rest (its author is asked again)."""
-    return x["state"] == "superseded" and (x.get("review") or {}).get("verdict") == "revise"
+    return x["state"] == "sent-back"
 
 
 def _changes(p) -> dict:

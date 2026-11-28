@@ -766,7 +766,7 @@ one, `person-gate`) (SPEC §9.5, *Dispatch*):
   (then scrubbed). Try it with a `command` channel (`run: "cat >> notified.txt"`) before any real one; never send a real
   message from a test.
 - **Model them away.** Add `uses: {interventions: {use: interventions}}`: the interventions waiting become a stock, a
-  goal holds the trend of those asked a day from rising, and each recurring class becomes an `ergostat.model-request`
+  goal holds the trend of those asked a day from rising, and each recurring class becomes an `ergostat.intervention-class`
   naming its remedies. Work the top request first (`ergostat inbox --stats` ranks them by the time they blocked their
   processes): automate the person's step with a block, add the loop that makes the approval a rule, change the software,
   or graduate the gate. Mark the request `--invest` while you work on it: for up to two weeks its class counts at most

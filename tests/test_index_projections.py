@@ -107,12 +107,12 @@ def _add(p, evs: list[tuple], t0: float, r: random.Random) -> list[str]:
 def _fresh_records(p) -> dict:
     """The record folded by the old code (tests/status_before.py): the modules read the tables now."""
     return {"action": old.actions(p), "message": old.messages(p), "report": old.reports(p),
-            "change": old.changes(p), "request": old.requests(p), "model-request": old.requests_now(p)}
+            "change": old.changes(p), "request": old.requests(p), "intervention-class": old.requests_now(p)}
 
 
 def _modules(p) -> dict:
     return {"action": actions.stored(p), "message": messages.stored(p), "report": reports.stored(p),
-            "change": proposals.changes(p), "request": requests.stored(p), "model-request": interventions.requests_now(p)}
+            "change": proposals.changes(p), "request": requests.stored(p), "intervention-class": interventions.requests_now(p)}
 
 
 def _latest_and_tallies(p, r: random.Random, a: float | None = None, b: float | None = None) -> None:
@@ -159,7 +159,7 @@ def _check(p, r: random.Random) -> None:
             for k in set(mine) | set(got):                 # (one entry at a time: a difference says which)
                 assert mine.get(k) == got.get(k), (fam, k, mine.get(k), got.get(k),
                                                    [(e["seq"], e["type"]) for e in p.events.query(n=None, item=k)])
-            for st in projections._kind(fam).states if fam != "model-request" else ():   # (keyed by class: two of one
+            for st in projections._kind(fam).states if fam != "intervention-class" else ():   # (keyed by class: two of one
                 #                                                       class in different states are one entry there)
                 assert ix.records(fam, states=[st]) == {k: v for k, v in got.items()
                                                         if (v[0] if fam == "change" else v["state"]) == st}, (fam, st)

@@ -96,9 +96,9 @@ def sent_back(p, reqs: list[dict]) -> list[dict]:
             how = f"the reviewer said {review['verdict']}" + (f" ({review['summary']})" if review.get("summary") else "")
             findings = [f"{g.get('check')}: {g.get('says')}" for g in review.get("findings") or []] + \
                 [f"(the judge's) {x}" for x in judged]
-        elif st == "failed":
+        elif st in ("failed", "rejected"):
             how, findings = "the judge failed it", [str(v.get("why") or "")] + judged
-        elif st in ("refused", "superseded") and (f.get("why") or v.get("why")):
+        elif st in ("refused", "superseded", "sent-back") and (f.get("why") or v.get("why")):
             how, findings = st, [str(f.get("why") or v.get("why"))]
         else:
             continue

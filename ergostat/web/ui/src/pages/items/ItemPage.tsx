@@ -72,8 +72,9 @@ const lit = (v: unknown) => { const t = String(v ?? ""); return /['\\]/.test(t) 
 export const groupQuery = (f: Record<string, any>) => `source == ${lit(f.source)} and type == ${lit(f.type)}`;
 
 /** A group of the events no projection takes (the built-in ergostat.unexplained, SPEC §12e): its events on the Events
- *  dashboard (q=: by its source and type; the unexplained ones alone with unexplained()), its request, the change
- *  that drafts a projection for it (opened in the workbench), and its examples, shown whole. */
+ *  dashboard (q=: by its source and type; the unexplained ones alone with unexplained()), the change that drafts a
+ *  projection for it (opened in the workbench), and its examples, shown whole. Its modelling request is bookkeeping:
+ *  never linked, the group is the one thing the owner watches. */
 function Unexplained({ f }: { f: Record<string, any> }) {
   const q = groupQuery(f);
   const pid = typeof f.change === "string" ? f.change.slice(f.change.indexOf("/") + 1) : "";
@@ -83,7 +84,7 @@ function Unexplained({ f }: { f: Record<string, any> }) {
         <AppLink to={eventsHref("q=" + encodeURIComponent(q))}>all its events</AppLink>
         {" · "}<AppLink to={eventsHref("q=" + encodeURIComponent(`${q} and unexplained()`))}>the unexplained ones</AppLink>
         {f.shape ? <span className="muted"> (shaped {"{"}{f.shape}{"}"})</span> : null}
-        {f.request && <>{" · "}<AppLink to={itemHref(f.request)}>its request</AppLink></>}
+
         {f.change && <>{" · "}<AppLink to={itemHref(f.change)}>its draft{f.round > 1 ? ` (round ${f.round})` : ""}</AppLink></>}
         {f.state === "waiting" && <>{" · "}<AppLink to={dashboardHref("inbox")}>it waits for you in the Inbox</AppLink></>}
         {f.state === "waiting" && pid && (f.drafts || []).map((n: string) => (

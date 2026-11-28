@@ -45,8 +45,8 @@ STEPS = (
     ("inconclusive", "inconclusive (the judge needs more record)", True),
 )
 WORDS = {k: w for k, w, _ in STEPS}
-STATE_OF = {"you": "passed", "judge": "testing", "reviewer": "passed", "written": "accepted", "sent-back": "superseded",
-            "rejected": "failed", "failed": "failed", "refused": "refused", "superseded": "superseded",
+STATE_OF = {"you": "passed", "judge": "testing", "reviewer": "reviewing", "written": "accepted", "sent-back": "sent-back",
+            "rejected": "rejected", "failed": "failed", "refused": "refused", "superseded": "superseded",
             "dismissed": "dismissed", "inconclusive": "inconclusive"}
 
 
@@ -119,6 +119,8 @@ def _kind_of(spec, x: dict) -> str:
     st = x.get("state")
     if st in ("checked", "testing"):
         return "judge"
+    if st == "reviewing":
+        return "reviewer"
     if st == "passed":
         if spec is not None and rv.unread(spec, x):
             return "reviewer"
@@ -127,10 +129,6 @@ def _kind_of(spec, x: dict) -> str:
         return "you"
     if st in ("accepted", "verified", "regressed"):
         return "written"
-    if st == "superseded":
-        return "sent-back" if str(x.get("why") or "").startswith("sent back to") else "superseded"
-    if st == "failed":
-        return "rejected" if str((x.get("verdict") or {}).get("why") or "").startswith("the reviewer rejected") else "failed"
     return st if st in WORDS else "superseded"
 
 
