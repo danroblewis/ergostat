@@ -29,7 +29,10 @@ import time
 from collections import deque
 from types import SimpleNamespace
 
+import difflib
+
 from ..runner import OWN_TYPES
+from .emit import types_of
 from .ir import Trigger
 from .items import matches
 
@@ -120,6 +123,18 @@ def check(c, spec) -> None:
         else:
             continue
         b.on = None
+    emitted = {t for k in (getattr(spec, "items", None) or {}).values() for t in types_of(k)}
+    for b in spec.blocks.values():                   # a type a projection publishes (emit:) exists; one a letter off
+        if b.on is None or not emitted:              # it is a typo (SPEC §5a, *Emitted events*)
+            continue
+        for t in b.on.events:
+            if t in emitted or any(overlap(t, x) for x in emitted):
+                continue
+            near = difflib.get_close_matches(t, sorted(emitted), n=1, cutoff=0.8)
+            if near:
+                from .load import Problem
+                c.problems.append(Problem("finding", f"block {b.name}.on: {t} is published by no projection: did you "
+                                          f"mean {near[0]} (its emit:)?", b.where, "unknown-event"))
     for cycle in loops(spec):
         c.err(f"block {cycle[0]}.on: its runs start themselves again, {' → '.join(cycle)} (each emits: a type the next "
               f"is on:); break the loop, or narrow a type", spec.blocks[cycle[0]].where, "trigger-loop")

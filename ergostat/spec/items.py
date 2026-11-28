@@ -106,7 +106,7 @@ def routes(spec: Spec, e: dict) -> list[tuple]:
             read = True
             for key in k.keys_of(e):
                 out.append((k, key))
-    if not read and "/" in str(e.get("item") or ""):
+    if not read and "/" in str(e.get("item") or "") and not str(e.get("source") or "").startswith("projection:"):
         out.append((None, e["item"]))
     return out
 

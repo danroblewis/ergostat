@@ -76,7 +76,7 @@ SENSOR_KEYS = {"run", "query", "manual", "projection", "builtin", "daemon", "jou
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
 ITEM_KEYS = COMMON | {"query", "key", "name", "time", "ignore", "defaults", "fields", "events", "show", "formats", "lease", "relations", "join", "about", "final",
-                      "finished", "lost", "moves-from", "if-unchanged", "attention", "pipeline", "risk-score", "group",
+                      "finished", "lost", "moves-from", "if-unchanged", "attention", "pipeline", "risk-score", "group", "emit",
                       "dashboards"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
@@ -1182,7 +1182,9 @@ class Compiler:
         display = self.display_name(m, what, declared)
         pipeline = self.pipeline(m, what, rules)
         risk = self.risk_score(m, what, states) if "risk-score" in m else None
-        return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats, pipeline=pipeline,
+        from . import emit as em
+        emits = em.compile_emit(self, m, what, declared, states)
+        k = ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats, pipeline=pipeline,
                         query=query, query_open=query_open, key=key, handlers=handlers, kinds=kinds, declared=declared,
                         own_time=own_time, ignore=ignore, functions=spec.functions,
                         risk=risk,
@@ -1191,7 +1193,11 @@ class Compiler:
                         join=joins.compile_join(self, m, what), about=about, final={s: {} for s in final},
                         finished=list(done), lost=list(lost), moves_from={e: tuple(s) for e, s in only.items()},
                         if_unchanged=tuple(fenced), attention=attention, group=self.group(m, what), display=display,
-                        computed=list(getattr(self, "computed_order", None) or []))
+                        computed=list(getattr(self, "computed_order", None) or []), emit=emits)
+        if emits:
+            em.check(self, k, m.at("emit") or m.where)
+            k.emit_version = em.version(k, getattr(spec, "functions_hash", ""))
+        return k
 
     def display_name(self, m: Map, what: str, declared: dict):
         """``name:`` (SPEC §5a, *An object's name*): an expression over the folded object's fields (``tags.Name or

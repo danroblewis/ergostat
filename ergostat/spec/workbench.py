@@ -836,6 +836,9 @@ def _review(p, ask: dict) -> dict:
         "duplicates": trying._dups([e for e in evs if took.get(e["id"]) is not None]),
         "unmapped": unmapped(kind, evs, took),
     })
+    if kind.emit:                                # what each emit: entry would have published over this history (none is)
+        from .emit import counted
+        out["emits"] = counted(kind, by_key)
     if ask.get("compare", True) is not False and trying.existing(p.model.spec, name) is not None:
         out["compared"] = compared(p, name, items, since, until)
     if ask.get("expected") is not None:

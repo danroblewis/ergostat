@@ -51,6 +51,7 @@ import contextlib
 import fcntl
 import functools
 import hashlib
+import json
 import logging
 import math
 import os
@@ -66,7 +67,7 @@ from pathlib import Path
 
 from ..leases import PREFIX as LEASE_PREFIX
 from ..store import damaged
-from . import codec, itemnumbers, projections
+from . import codec, emit, itemnumbers, projections
 from .about import parts_named
 from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, projections_of, reads_all, routes, text_of
 from .relations import links_of
@@ -109,6 +110,7 @@ create index if not exists numbers_kind on numbers(kind, field, value);
 create table if not exists event_counts (type text not null, source text not null, at real not null, n integer,
     primary key (type, source, at)) without rowid;
 create table if not exists carried (t real, name text, labels text, value real);
+create table if not exists emits (n integer primary key autoincrement, projection text, ev text);
 """
 UNPROJECTED = "unprojected"    # the table of the ids no projection matches
 ROWS = """
@@ -330,6 +332,7 @@ class Index:
         self._held: int | None = None                 # the shared lock on ``<file>.lock`` while open
         self._events = None                           # the record last followed (to build it again from)
         self._kinds_of: dict[str, list] = {}
+        self.emit_from = sys.maxsize                  # the seq past which a fold publishes (``emit_from``, set per step)
         self._forget()
 
     def _forget(self) -> None:
@@ -406,6 +409,8 @@ class Index:
     def routes(self, e: dict) -> list[tuple]:
         """Every (projection, item) event ``e`` folds into (``items.routes``); for a model whose projections all read
         their events by item id alone, by the id's projections, kept."""
+        if str(e.get("source") or "").startswith("projection:"):   # a projection's own (SPEC §5a): read when named
+            return routes(self.spec, e) if self.kinds else []
         if self.kinds and all(k.query is None and k.by_item for k in self.kinds.values()):
             item = e.get("item")
             return [(k, item) for k in self.kinds_of(item) if k is None or k.handlers is None or k.keys_of(e)] \
@@ -524,10 +529,16 @@ class Index:
         if self._meta("version") != VERSION or self._meta("gen") is None or last < seq or gen < int(self._meta("gen")):
             self._reset()                                   # a new index, or a record that went back: fold it all again
             seq = 0
+            self._set_meta(emit_from=last)                  # (what it folds again publishes nothing: emit.py)
         elif int(self._meta("gen")) != gen:
             self._reconcile(events)                         # events taken out (rolled up, pruned): items gone go
             projections.again(self, events, seq)            # and what the status reads folded again from what is left
         self._set_meta(gen=gen)
+        mark = self._meta("emit_from")
+        if mark is None:                                    # (an index made before emit:: from here on)
+            self._set_meta(emit_from=seq)
+            mark = seq
+        self.emit_from = int(mark)
         self._numbered()
         every = reads_all(self.spec)                        # a projection keyed by its events' data: every event read
         new = events.query(n=None, after_seq=seq, skip=skip, first=CHUNK) if every else \
@@ -549,7 +560,7 @@ class Index:
 
     def _reset(self) -> None:
         for t in (*self.tables(), "moves", "left", "reached", "links", "number_log", "numbers", "names", "meta", "event_counts",
-                  "carried", *projections.TABLES):
+                  "carried", "emits", *projections.TABLES):
             self.db.execute(f"delete from {t}")
         self.names, self.rnames = {None: None}, {None: None}
         self.cache.clear()
@@ -590,6 +601,7 @@ class Index:
         self.db.executemany("insert into event_counts(type, source, at, n) values (?,?,?,?) "
                             "on conflict(type, source, at) do update set n = n + excluded.n", [(*k, n) for k, n in per.items()])
         keys = list(by)
+        published: list[dict] = []
         have = {key: x for key in keys if (x := self.cache.pop(key, None)) is not None}
         rows = self._rows_of([key for key in keys if key not in have])
         now = time.time()
@@ -607,7 +619,10 @@ class Index:
             else:
                 it, rid, arrived, newest, raw, raw_first = None, None, None, None, 0, None
             touched, dis = (dict(getattr(it, "touched", {})), getattr(it, "dis", None)) if it is not None else ({}, None)
-            it, numbered, renumbered = itemnumbers.follow(id, evs, k, it, self.transcript, fold)
+            folder = fold
+            if k is not None and k.emit and not self.transcript:   # what it publishes (SPEC §5a): live events only
+                folder = emit.folding(k, k.emit_version, published, lambda e, m=self.emit_from: (e.get("seq") or 0) > m)
+            it, numbered, renumbered = itemnumbers.follow(id, evs, k, it, self.transcript, folder)
             restored = False
             for e in evs:
                 if e["type"] == SNAPSHOT:
@@ -663,6 +678,9 @@ class Index:
                 self.cache[key] = (it, raw, raw_first)
         while len(self.cache) > CACHED:
             self.cache.popitem(last=False)
+        if published:                                       # its outbox, in this transaction: the engine records them
+            self.db.executemany("insert into emits(projection, ev) values (?, ?)",
+                                [(x["data"]["projection"], json.dumps(x, default=str)) for x in published])
 
     def _keep_numbers(self, rid: int, it: Item, rows: list[tuple], restored: bool) -> None:
         """An item's changes of its numeric fields written (``restored``: a snapshot's history in place of what was

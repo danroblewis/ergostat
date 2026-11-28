@@ -250,6 +250,15 @@ export function SidePanel({ r, item, onItem, keyPart, onOpen }: {
         {Object.entries(r.lifecycles || {}).map(([f, l]) => <Lifecycle key={f} field={f} l={l} />)}
       </div>
 
+      {(r.emits || []).length > 0 && <>
+        <h2 className="small">What it would publish</h2>
+        <ul className="small" aria-label="What it would publish" data-testid="wb-emits">{r.emits.map((x: any) => (
+          <li key={x.entry}><strong>{x.entry}</strong>{" "}
+            {Object.entries(x.types).map(([t, c]) => `${t} ${n(c as number)}`).join(", ")}{" "}
+            <span className="muted">({n(x.objects)} object{x.objects === 1 ? "" : "s"}; {x.field ? `transitions of ${x.field}` : <code>{x.when}</code>})</span></li>
+        ))}</ul>
+      </>}
+
       <Objects r={r} item={item} onItem={onItem} />
 
       <h2 className="small wb-residual-h">The residual</h2>

@@ -303,6 +303,10 @@ def review_text(r: dict, width: int | None = None) -> str:
     for f, lc in r["lifecycles"].items():
         tr = ", ".join(f"{t['from'] or '(new)'}->{t['to']} {t['count']}" for t in lc["transitions"][:8])
         out.append(cut(f"  lifecycle  {f}: now " + ", ".join(f"{k} {v}" for k, v in lc["now"].items()) + f"; {tr}", 300))
+    for x in r.get("emits") or []:            # what each emit: entry would have published (SPEC §5a), none published
+        ts = ", ".join(f"{t} {_n(n)}" for t, n in x["types"].items())
+        out.append(cut(f"  emit       {x['entry']}: {ts} ({_n(x['objects'])} objects; "
+                       f"{'transitions of ' + x['field'] if x.get('field') else 'when ' + x['when']})", 300))
     if "compared" in r:
         c = r["compared"]
         out.append(f"  vs saved   {c.get('saved')} -> {c.get('draft')} objects: {c.get('appear')} appear, "

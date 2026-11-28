@@ -2361,6 +2361,7 @@ projections:
 | `time` | expression | the recorded time | The event's own time (seconds, or ISO 8601 text): the fold is by it (without it, in the record's order), and an expression's `time` is it |
 | `ignore` | list of paths | none | The event's paths known not to matter (`[type, source, data.version]`, each as the expressions write it; a path ignores all under it): the workbench's list, which hides them in its events and leaves them out of the paths left to decide (*The workbench*, below). The fold never reads it; `check` says `bad-ignore` for anything but a list of paths |
 | `fields` | map of field → `{type, values, fold, from, description}` | none | What an object is (*Fields*, below; `from:` a computed field's expression, *Computed fields*). A field's entry may be its type alone (`name: text`) or nothing (`name:`: any value, replace) |
+| `emit` | map of name → `transitions` or a condition | none | What it publishes from its objects: a field's transitions, a condition's edges, as events blocks are started by (*Emitted events*, below) |
 | `defaults` | map of field → value | none | The values every kind of event under `events:` gives its fields unless the kind gives its own (*Defaults*, below) |
 | `events` | map of kind of event → entry | every event, its data spread in | The kinds of event it reads (*Kinds of event*, below), in order: the first whose `when:` holds takes an event |
 | `show` | list of field names | its declared fields | The columns of the projection's own page (`/PROJECTION`) and of `ergostat item` |
@@ -2434,6 +2435,64 @@ fields:
 
 Two projections over the same events may each compute their own state from the fields they fold (a service's health,
 and its capacity: `'empty' if not running else 'full' if running >= desired else 'some'`).
+
+**Emitted events** (2026-11-28, the owner's design: "a projection might emit an event for 'this field has gone above
+its 500ms threshold'"; `spec/emit.py`). A projection publishes events from its own folded objects into the record, and
+blocks are started by them as by any other event (`on:`, section 9.3: one trigger mechanism). `emit:` maps a name to
+`transitions` (the name a field with `values:`, written by events or computed by `from:`; `state` among them) or to a
+condition, an expression over the object's fields, `key` and `state`, never the event (checked as a computed field's
+`from:`). After each event is folded into an object, each entry is worked out again and compared with what it was
+before that event:
+
+```yaml
+projections:
+  instance:
+    fields:
+      state: {values: [pending, running, stopping, stopped]}
+      latency_ms: {type: number}
+    emit:
+      state: transitions          # instance.state-changed {from, to} on every change of state
+      slow: latency_ms > 500      # instance.slow when it becomes true, instance.slow-cleared when it stops
+```
+
+- **The types.** `FIELD: transitions` publishes `<projection>.<field>-changed` on each change of the field's value for
+  an object (its arrival too: `from` null). `NAME: EXPR` publishes `<projection>.<NAME>` when it becomes true for an
+  object and `<projection>.<NAME>-cleared` when it stops: edge-triggered, nothing while it stays as it was; null, or an
+  expression that raises, is not true. Per object only: a threshold over many objects (an alarm on how many are slow)
+  is the control system's, a sensor, a goal and a controller.
+- **The event.** Its envelope: `type` as above; `item` the object's key (as its projection's address names it, so it
+  is found with the object's own events); `source: projection:NAME`, which is what says it is **inferred**, worked out
+  by ergostat and not observed (invariant 11; no other mark); `causedby` the event that caused it; `time` that event's
+  own time (its `time:`, else its recorded time); `id` made from (projection, version, object, entry, causing event).
+  Its `data`: `projection`, `id` (the object's key as one text), `key` (its key fields by name; `{}` without `key:`),
+  `name` (its display name, or null), `entry`, for transitions `field`, `from` and `to`, for a condition `fields` (the
+  values of the fields the expression reads, after the event), `cause` (`{id, time}`) and `version` (of the
+  projection's definition: a change to it is another version).
+- **Live only.** Published only when a newly recorded event causes the change, as the item index folds it live,
+  including events recorded while ergostat was down, caught up under the same definition. The index keeps a mark
+  (`emit_from`): the record's last `seq` when the index file was made; a fold of what is at or before it publishes
+  nothing. A change to the definition (its fields, kinds, `emit:`) makes a new index, which folds the past again and
+  publishes nothing for it; a rebuild for any other reason (`ergostat compact --reindex`, an index healed) is the
+  same. Events folded by event time: a late event publishes the change the fold makes now (a late event that changes
+  nothing publishes nothing); an event delivered twice changes nothing the second time. What an event makes an object
+  publish is written to the index's outbox in the transaction that folds it, and the engine records it each time its
+  loop wakes (only the engine does: a page or a command line that folds first leaves it there); its id is the same
+  however often that happens, so a crash and a replay never record it twice. A tried or reviewed draft publishes
+  nothing. Its cost is per event folded and per entry: never a scan of the record.
+- **No loops.** No projection's query reads an event whose source is `projection:*` unless the query names that
+  source (`source == 'projection:instance'`); none is an item of no projection either. `check` says `emit-loop` for a
+  projection whose query reads what it publishes itself.
+- **Triggers.** `on: {event: instance.slow, emits: [...]}` works as on any event (`where:` reads its data:
+  `{to: stopped}`); its run's input carries the event, its cause line through `causedby`. A trigger is passed over when
+  its event is older than `max-age:` by its time, which is the causing event's: a stream recorded late publishes late.
+  `check` says `unknown-event` (a finding) for a block on a type no projection publishes and close to one it does
+  (`instance.slwo`).
+- **Reviewed before saving.** The workbench's review (`emits`: per entry, each type's count over the history read and
+  the objects that would publish one, as the fold sees them from the first event; nothing is published), the CLI's
+  `projection review` (an `emit` line per entry) and the page's side panel (*What it would publish*).
+- **`check`**: `bad-emit` for a name that is not lowercase letters, digits, `_` and `-`, transitions of what is not a
+  field or of a field without `values:`, a condition that does not parse, reads the event or calls a fold;
+  `emit-collision` for two entries publishing one type (`state: transitions` and `state-changed: ...`); `emit-loop`.
 
 **Kinds of event.** Each entry of `events:` is a kind of event, named by the person who writes it (lowercase letters,
 digits and `-`). Its `when:` (an expression, or `true`: every event) says which events of the query's result it takes;
@@ -2584,7 +2643,7 @@ rule when an entry sets them with a plain value.
 field's value that is a fold call (`bad-key`), a value for an undeclared field (`undeclared-field`), a fold that does not fit
 its field's type (`bad-fold`), a type that is none (`bad-type`), a constant not in a `one of` (`not-one-of`,
 `unknown-state`), an unknown function (`unknown-function`), an expression that does not parse or uses what is not
-allowed (`bad-expression`), a kind of event with no `when:` (`missing-when`), a computed field given a value by a kind, folded, reading the event or in a cycle (`computed-field`, `bad-computed`, `computed-cycle`), and the old keys (`match:`, `states:`,
+allowed (`bad-expression`), a kind of event with no `when:` (`missing-when`), a computed field given a value by a kind, folded, reading the event or in a cycle (`computed-field`, `bad-computed`, `computed-cycle`), an `emit:` entry that is not one (`bad-emit`, `emit-collision`, `emit-loop`: *Emitted events*), and the old keys (`match:`, `states:`,
 `otherwise:`: `unknown-key`; the old syntax is gone, `scripts/convert_projections.py` rewrote this repository's). Its
 finding: a kind of event that does not tell one of the key's fields (`key-not-told`, naming the kind and the fields).
 
@@ -5110,7 +5169,7 @@ blocks:
 **Started by an event.** `on: {event: TYPE, where: {...}, emits: [TYPES], max-age: 1h, most: 60}` on a `program` or
 `ai` block runs it once for each event of that type recorded (`event:` a type, a list of them, or a prefix, `ticket.*`;
 `on: TYPE` alone is the same) whose `data` matches `where:` (typed, as a sensor's: section 6; `a.b` reads a field's
-field), however it arrived: a block's line, a push or a webhook (section 5c), `ergostat event --add`. It is what a state
+field), however it arrived: a block's line, a push or a webhook (section 5c), `ergostat event --add`, or published by a projection from its objects (`emit:`, §5a, *Emitted events*: `instance.slow`). It is what a state
 change cannot say: a comment, a review, a webhook that moves nothing. `emits:` is the block's **declared output set**:
 the event types its runs may say, as lines or by `$ERGOSTAT_CMD event --add` (none, by default, which `check` notes:
 `trigger-no-emits`).

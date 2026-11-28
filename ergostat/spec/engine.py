@@ -166,6 +166,8 @@ class Engine:
         self.daemons = Supervisor(self)               # the long-lived runners blocks and sensors hand work to (SPEC §9.7)
         from .joins import Joins
         self.joins = Joins(self)                      # parents moved on by their children (SPEC §5a, Join)
+        from .emit import Emitter
+        self.emitter = Emitter(self)                  # what projections publish from their objects (SPEC §5a, emit:)
         self.compute = None                           # the sessions with the pools' nodes, once a model has pools (§12s.4)
         # the loop (``_schedule``): readings asked for, taken a batch at a time; commands and queries read by a fixed
         # pool, counts of items from what the fold keeps (counts.py); then one pass over what changed (scale.md #1, #4)
@@ -1767,6 +1769,10 @@ class Engine:
                 self.joins.look()                                # parents their children moved on: what was written since
             except Exception as e:
                 self.say(f"joins: {type(e).__name__}: {e}")
+            try:
+                self.emitter.look()                              # what projections publish: their outboxes recorded
+            except Exception as e:
+                self.say(f"emit: {type(e).__name__}: {e}")
             try:
                 self.triggers.look()                             # blocks started by an event: what was written since
             except Exception as e:

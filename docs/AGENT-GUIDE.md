@@ -1436,6 +1436,31 @@ since 1h ago; the record spans 3d`). An outside log replayed into the record is 
    (never left for the expression to imply), and write the state as an expression of those fields; its changes are
    moves as a mapped state's are, and no kind may also give it a value. Map a state when an event says it outright
    (EC2's `detail.state`): a computed one would only repeat it.
+
+   **Start an agent on an object's transition or condition** (SPEC §5a, *Emitted events*): give the projection
+   `emit:`, and start the block on the type it publishes, as on any event (§9.3). `state: transitions` publishes
+   `instance.state-changed` (`data.from`, `data.to`) on each change of `state`; `slow: latency_ms > 500` publishes
+   `instance.slow` when it becomes true for an object and `instance.slow-cleared` when it stops (once each, not on
+   every event). Narrow a transition with the trigger's `where:` (`{to: stopped}`):
+
+   ```yaml
+   projections:
+     instance:
+       # ... query, key, fields (state with values:, latency_ms), events
+       emit:
+         state: transitions
+         slow: latency_ms > 500
+   blocks:
+     on-call:
+       type: ai
+       on: {event: instance.slow, emits: [incident.noted]}
+       prompt: prompts/slow.md          # its input's event.data: projection, id, key, name, fields, cause
+   ```
+
+   Review the draft first: its *emit* lines say how many of each it would have published over the history read (none
+   is published), so a threshold that fires on every object shows before it is saved. They are published live only,
+   from events recorded after the definition was saved; a changed definition refolds the past silently. One object's
+   edge per entry: a threshold over many objects (more than 10 slow) is a goal and a controller, not an `emit:`.
 5. **Review it**: `ergostat projection review draft.yaml [--item KEY] [--json]` (MCP `projection_review`) holds the
    draft against its events as the workbench does: per kind of event what it took and in how many objects; the
    objects; the residual (the *remainder* no kind takes, by shape; *no key*, with the key fields each kind does not

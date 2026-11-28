@@ -1054,6 +1054,8 @@ class ItemKind:
     own_time: object = None        # the event's own time (handlers.Value; ``time:``); None: the recorded time
     computed: list = field(default_factory=list, compare=False)   # (field, handlers.Value): its from: fields, in order
     ignore: tuple = ()           # the event's paths known not to matter (``ignore:``): the workbench's, never folded
+    emit: list = field(default_factory=list, compare=False)    # what it publishes from its objects (emit.Entry, ``emit:``)
+    emit_version: str = field(default="", compare=False)       # its definition's version, as what it publishes says
     functions: dict = field(default_factory=dict, repr=False, compare=False)   # the model's fold functions, by name
     memo: dict = field(default_factory=dict, repr=False, compare=False)        # event id → its kind of event
     # its display name (``name:``, a handlers.Value over the folded object's fields): shown, never its identity or
@@ -1084,6 +1086,9 @@ class ItemKind:
     def reads(self, e: dict) -> bool:
         """Whether this projection reads event ``e``: its ``query:``; else (and ergostat's own events, a lease, a
         snapshot, always) its item matches ``id``."""
+        s = e.get("source")
+        if isinstance(s, str) and s.startswith("projection:") and (self.query is None or s not in self.query.text):
+            return False                 # a projection's own events (SPEC §5a, *Emitted events*): read when named only
         if self.query is None or str(e.get("type") or "").startswith("ergostat."):
             item = e.get("item")
             import fnmatch
@@ -1136,7 +1141,8 @@ class ItemKind:
                 "events": {k.name: {"when": k.when.text if k.when.tree is not None else k.when.literal,
                                     **({"key": [v.text for v in k.key]} if k.key else {}),
                                     **{f: v.text for f, v in k.fields.items()}} for k in self.kinds}
-                if self.handlers is not None else {t: {"state": f"set('{s}')"} for t, s in self.on.items()}}
+                if self.handlers is not None else {t: {"state": f"set('{s}')"} for t, s in self.on.items()},
+                **({"emit": dict(x.spec() for x in self.emit)} if self.emit else {})}
 
     def key_of(self, e: dict) -> str | None:
         """The (first) object event ``e`` belongs to in this projection (None: none)."""
