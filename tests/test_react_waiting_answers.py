@@ -33,7 +33,7 @@ def test_a_draft_waiting_is_linked_opened_and_approved_from_the_page(tmp_path, m
         assert row.locator('a[data-workbench="deploy"]').get_attribute("href").endswith(f"workbench=deploy&proposal={pid}")
         row.locator('button[data-answer="approve"]').click()
         row.locator("[data-answered]").wait_for(timeout=WAIT)
-        assert "approved" in row.locator("[data-answered]").inner_text()
+        assert "Approved" in row.locator("[data-answered]").inner_text()
         assert "  deploy:" in p.model.path.read_text()
         pg.close()
     finally:

@@ -3,7 +3,7 @@ import { apiPost } from "../lib/api";
 import { itemHref } from "../lib/hrefs";
 import { dur } from "../lib/format";
 import { goalsOff, useStatus, waitsOnYou, type Status } from "../state/status";
-import { AppLink, Fold } from "./ui";
+import { AppLink, Button, Fold } from "./ui";
 
 /* What asks for the owner's attention (/api/status's attention, or a graph's in its own words), and the lists a
    diagram is read with: the parts of the Diagram page's side list, and of the attention, legend, feedback-loops,
@@ -14,25 +14,46 @@ import { AppLink, Fold } from "./ui";
 export const ATTENTION_PARTS = ["waiting", "off", "housekeeping", "suggestions"] as const;
 export type AttentionPart = typeof ATTENTION_PARTS[number];
 
-/** An inbox entry's answers (approve, deny, as /api/inbox/ID/VERB takes them), said back once given. */
-function Answers({ a }: { a: any }) {
+const KIND_WORD: Record<string, string> = { change: "model change", action: "action", steptest: "step test", command: "command" };
+
+/** One thing the owner can answer here: what it is (linked to its page), why in a line, and its answers as buttons. */
+function WaitingCard({ a }: { a: any }) {
   const { refresh } = useStatus();
   const [said, setSaid] = useState<string | null>(null);
   const verbs: string[] = (a.answer || []).filter((v: string) => v === "approve" || v === "deny");
-  if (!verbs.length || !waitsOnYou(a)) return null;
-  if (said) return <span className="muted" data-answered> · {said}</span>;
+  const kind = KIND_WORD[a.kind] || a.kind || "";
+  const title = String(a.first || a.what).replace(/^model change: /, "");
   const give = (verb: string) => {
     const note = verb === "deny" ? window.prompt("Why? (optional)") ?? undefined : undefined;
     apiPost(`inbox/${encodeURIComponent(a.what)}/${verb}`, note ? { note } : {})
-      .then(() => { setSaid(verb === "approve" ? "approved" : "denied"); refresh(); })
-      .catch((e) => setSaid(`not answered: ${e.message}`));
+      .then(() => { setSaid(verb === "approve" ? "Approved" : "Denied"); refresh(); })
+      .catch((e) => setSaid(`Not answered: ${e.message}`));
   };
   return (
-    <span className="att-answers">
-      {" "}{verbs.map((v) => <button key={v} type="button" data-answer={v} onClick={() => give(v)}>{v === "approve" ? "Approve" : "Deny"}</button>)}
-    </span>
+    <div className="wait-card" data-row={a.what}>
+      <div className="wait-title">
+        {a.link ? <AppLink className="plain" to={a.link}><b>{title}</b></AppLink> : <b>{title}</b>}
+      </div>
+      <div className="wait-meta">{kind}{a.age ? ` · waiting ${a.age}` : ""}</div>
+      {a.more && <div className="wait-why">{a.more}</div>}
+      {said ? <div className="wait-said" data-answered>{said}</div> : (
+        <div className="wait-actions">
+          {verbs.map((v) => (
+            <Button key={v} className={v === "approve" ? "primary" : undefined} data-answer={v} onClick={() => give(v)}>
+              {v === "approve" ? "Approve" : "Deny"}
+            </Button>
+          ))}
+          {(a.workbench || []).map((w: any) => (
+            <AppLink key={w.projection} to={w.link} data-workbench={w.projection}>Open {w.projection} in the workbench</AppLink>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
+
+/** Whether the owner can answer it here (approve or deny). */
+const answerable = (a: any): boolean => (a.answer || []).some((v: string) => v === "approve" || v === "deny");
 
 function Row({ a, onGoal }: { a: any; onGoal: (goal: string) => void }) {
   const word = a.state || (a.kind === "request" ? "request" : waitsOnYou(a) ? "waiting" : a.level === "bad" ? "fault" : "note");
@@ -44,10 +65,6 @@ function Row({ a, onGoal }: { a: any; onGoal: (goal: string) => void }) {
       {href ? <AppLink className="plain" to={href}>{what}</AppLink>
         : a.goal ? <button type="button" className="name" onClick={() => onGoal(a.goal)}>{what}</button> : what}{" "}
       {String(a.says || "").replace(/\. ergostat inbox .*$/, "")}
-      {(a.workbench || []).map((w: any) => (
-        <span key={w.projection}> · <AppLink to={w.link} data-workbench={w.projection}>open {w.projection} in the workbench</AppLink></span>
-      ))}
-      <Answers a={a} />
       {a.diagnosis_in ? <span className="muted"> · diagnosis in {dur(a.diagnosis_in)}</span> : null}
     </div>
   );
@@ -60,7 +77,7 @@ export function Attention({ attention, status, show, onGoal }: {
 }) {
   const shown = (p: AttentionPart) => !show?.length || show.includes(p);
   const problems = attention.filter((a) => a.level !== "hint"), hints = attention.filter((a) => a.level === "hint");
-  const waiting = problems.filter(waitsOnYou);
+  const waiting = problems.filter(waitsOnYou).sort((x, y) => Number(answerable(y)) - Number(answerable(x)));   // answerable here first
   const off = problems.filter((a) => a.state === "off").sort((a, b) => Number(!!a.modelling) - Number(!!b.modelling));
   const rest = problems.filter((a) => !waitsOnYou(a) && !off.includes(a));
   const { off: nOff, upkeep } = goalsOff(status);
@@ -78,7 +95,8 @@ export function Attention({ attention, status, show, onGoal }: {
           {waiting.length > 0 ? (
             <>
               <h3 className="att-head" id="waiting" tabIndex={-1}>Waiting for you <span className="muted">{waiting.length}</span></h3>
-              {list(waiting, "", "needs")}
+              {waiting.filter(answerable).map((a, i) => <WaitingCard key={a.what + i} a={a} />)}
+              {list(waiting.filter((a) => !answerable(a)), "", "needs")}
             </>
           ) : <p id="may-do" className="may-do">Nothing waits for you. Looking never changes the system.</p>}
         </>

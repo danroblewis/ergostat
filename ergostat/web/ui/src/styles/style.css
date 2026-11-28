@@ -256,6 +256,12 @@ h2 .status { font-size: var(--text); margin-left: var(--sp-2); }
 .att .ask { white-space: pre-line; }
 .att details.cmd pre, .claim details.cmd pre { white-space: pre-wrap; margin: var(--sp-1) 0 0; }
 .att .att-word { color: var(--ink-2); }
+/* a thing the owner answers here: its title, a line of why, its buttons on their own line */
+.wait-card { border: 1px solid var(--line); border-radius: 6px; padding: var(--sp-2); margin: var(--sp-2) 0; overflow-wrap: anywhere; }
+.wait-card .wait-meta { color: var(--muted); font-size: var(--text-sm); }
+.wait-card .wait-why { margin-top: var(--sp-1); font-size: var(--text-sm); color: var(--ink-2); }
+.wait-card .wait-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; margin-top: var(--sp-2); }
+.wait-card .wait-said { margin-top: var(--sp-2); color: var(--muted); }
 .att .att-word + .ask-first { display: inline; }
 .att hr.att-rule { border: 0; border-top: 1px solid var(--line); margin: 0; width: 100%; }
 details.housekeeping > summary h3 { display: inline; }
