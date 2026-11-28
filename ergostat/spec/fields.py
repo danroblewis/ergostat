@@ -5,7 +5,9 @@
 hold (text: a state's states). A fold is how a value an event
 gives combines with the field's: ``replace`` (the default: newest by event time wins), ``first`` (the earliest by event
 time), ``add``, ``min``, ``max``, ``append`` / ``append(N)``, ``union``, ``merge``, ``count``, ``mean``, ``variance``,
-``stdev``, ``rms``, or a model's own function. An events entry's plain value is folded by its field's rule; a fold call
+``stdev``, ``rms``, or a model's own function. ``from: EXPR`` makes a field computed: worked out from the object's
+other fields after each event is folded (compile.py orders them, handlers.apply_event evaluates them), never told by
+an event. An events entry's plain value is folded by its field's rule; a fold call
 in it (``set(...)``, ``add(...)``) is that kind's own rule for the field."""
 
 from __future__ import annotations
@@ -116,11 +118,14 @@ class Field:
     fold: str = "replace"            # one of FOLDS, or a model's own function's name
     bound: int | None = None         # append(N): the last N kept
     description: str = ""
+    expr: str = ""                   # from: its expression over the object's other fields (computed: never folded)
+    computed: object = field(default=None, compare=False)   # that expression compiled (handlers.Value), by compile.py
 
     def spec(self) -> dict:
         return {"type": "text" if self.type.base == "values" else str(self.type),
                 **({"values": list(self.type.values)} if self.type.base == "values" else {}),
                 "fold": self.fold + (f"({self.bound})" if self.bound else ""),
+                **({"from": self.expr} if self.expr else {}),
                 **({"description": self.description} if self.description else {})}
 
 
@@ -138,10 +143,18 @@ def parse_field(name: str, raw, functions: dict) -> Field:
     if isinstance(raw, str):
         return Field(name, parse_type(raw))
     if not isinstance(raw, dict):
-        raise BadField(f"{json.dumps(raw, default=str)[:60]}: a field is {{type, values, fold, description}}")
-    bad = set(raw) - {"type", "values", "fold", "description"}
+        raise BadField(f"{json.dumps(raw, default=str)[:60]}: a field is {{type, values, fold, from, description}}")
+    bad = set(raw) - {"type", "values", "fold", "from", "description"}
     if bad:
-        raise BadField(f"{', '.join(sorted(map(str, bad)))}: a field says only type, values, fold and description")
+        raise BadField(f"{', '.join(sorted(map(str, bad)))}: a field says only type, values, fold, from and description")
+    expr = raw.get("from")
+    if expr is not None:
+        if not isinstance(expr, str) or not expr.strip():
+            raise BadField("from: an expression of the object's other fields giving its value (running < desired)",
+                           "bad-computed")
+        if raw.get("fold") not in (None, "", "replace"):
+            raise BadField(f"fold: a computed field (from:) is worked out from the others after each event, never "
+                           f"folded: no fold: {raw.get('fold')}", "bad-computed")
     if "values" in raw:
         vals = raw["values"]
         if not isinstance(vals, list) or not vals or not all(isinstance(x, (str, int, float)) and not isinstance(x, bool)
@@ -162,7 +175,7 @@ def parse_field(name: str, raw, functions: dict) -> Field:
                        "unknown-function")
     if not fits(fold, t):
         raise BadField(f"fold: {fold} does not fit a {t} (it folds {', '.join(FITS[fold])})", "bad-fold")
-    return Field(name, t, fold, bound, str(raw.get("description") or ""))
+    return Field(name, t, fold, bound, str(raw.get("description") or ""), expr.strip() if expr is not None else "")
 
 
 def wrapped(f: Field, text: str) -> str:

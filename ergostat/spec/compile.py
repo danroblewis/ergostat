@@ -795,6 +795,7 @@ class Compiler:
                 declared[f] = fl.parse_field(f, d, spec.functions)
             except fl.BadField as e:
                 self.err(f"{what}.fields.{f}: {e}", fw, e.code)
+        self.computed_order = self.computed(declared, raw or {}, what, m)
         st = declared.get("state")
         states = list(st.type.values) if st is not None and st.type.base == "values" else []
         if st is not None and st.type.base not in ("values", None, "text"):
@@ -835,7 +836,11 @@ class Compiler:
             else:
                 names_k = [x.strip() for x in names_k]
                 bad = [x for x in names_k if x not in declared]
-                if bad:
+                made = [x for x in names_k if x in declared and declared[x].expr]
+                if made:
+                    self.err(f"{what}.key: {made[0]} is computed (from:): the key is what the events tell, each kind "
+                             f"mapping it", kat, "bad-key")
+                elif bad:
                     self.err(f"{what}.key: {bad[0]} is not one of its fields: the key names declared fields, each "
                              f"mapped by its kinds of event ({', '.join(declared) or 'none yet'})", kat, "bad-key")
                 elif len(set(names_k)) != len(names_k):
@@ -929,6 +934,10 @@ class Compiler:
                         self.err(f"{what}.events.{kn}.{f}: {f} is not one of its fields: declare it under fields: "
                                  f"({', '.join(declared) or 'none yet'})", fw, "undeclared-field")
                         continue
+                    if d is not None and d.expr:
+                        self.err(f"{what}.events.{kn}.{f}: {f} is computed (from: {d.expr}): it is worked out from the "
+                                 f"other fields after each event, and no event gives it a value", fw, "computed-field")
+                        continue
                     if f in keyset:                  # a part of the key: a plain expression (each() fans it out)
                         try:
                             v = compile_value(raw_v, {**spec.functions, "each": None})
@@ -1015,6 +1024,63 @@ class Compiler:
             else:
                 untold.append(f)
         return (None if untold else parts), untold
+
+    def computed(self, declared: dict, raw, what: str, m: Map) -> list:
+        """Its computed fields (``from:``, SPEC §5a, *Computed fields*), each's expression compiled over the object's
+        fields and ``key`` (never the event's ``data``, ``time``...), in the order they are worked out: a field read by
+        another first. A cycle is said, naming it, and its fields are left out."""
+        import ast as _ast
+        from .handlers import BadExpr, compile_value
+        made = {f: d for f, d in declared.items() if d.expr}
+        if not made:
+            return []
+        where = lambda f: (raw.at(f) if hasattr(raw, "at") else None) or m.at("fields") or m.where  # noqa: E731
+        scope = (*declared, "key")
+        deps: dict[str, list[str]] = {}
+        for f, d in made.items():
+            try:
+                v = compile_value(d.expr, {}, scope)
+            except BadExpr as e:
+                msg = str(e)
+                if " is not a name" in msg:
+                    word = msg.split(" is not a name")[0]
+                    msg = (f"{word} is the event's: a computed field reads the object's fields "
+                           f"({', '.join(x for x in declared if x != f) or 'none yet'}) and its key, after each event is "
+                           f"folded" if word in ("data", "time", "type", "source", "current")
+                           else f"{word} is not one of its fields: a computed field reads the object's fields "
+                                f"({', '.join(x for x in declared if x != f) or 'none yet'}) and its key")
+                self.err(f"{what}.fields.{f}.from: {msg}", where(f), "bad-computed")
+                continue
+            if v.call is not None or v.tree is None:
+                self.err(f"{what}.fields.{f}.from: a plain expression of the object's other fields "
+                         + (f"({v.call}() folds a field)" if v.call else "(a constant is no computation)"), where(f),
+                         "bad-computed")
+                continue
+            d.computed = v
+            deps[f] = sorted({n.id for n in _ast.walk(v.tree) if isinstance(n, _ast.Name) and n.id in made})
+        order: list[str] = []
+        state: dict[str, int] = {}                     # 1: being visited, 2: done
+
+        def visit(f: str, path: list[str]) -> bool:
+            if state.get(f) == 2:
+                return f in order
+            if state.get(f) == 1:
+                cyc = path[path.index(f):] + [f]
+                self.err(f"{what}.fields: the computed fields read each other in a cycle ({' -> '.join(cyc)}): one of "
+                         f"them must read only fields the events tell", where(f), "computed-cycle")
+                return False
+            state[f] = 1
+            ok = all(visit(g, [*path, f]) for g in deps.get(f, ()) if g in deps)
+            state[f] = 2
+            if ok:
+                order.append(f)
+            return ok
+        for f in deps:
+            visit(f, [])
+        dropped = set(deps) - set(order)
+        for f in dropped:
+            made[f].computed = None
+        return [(f, made[f].computed) for f in order]
 
     def implied_id(self, name: str, m: Map, what: str, spec: Spec) -> str:
         """A projection's id when it writes none (SPEC §5a): its defined-in system's chain from the top level, its
@@ -1124,7 +1190,8 @@ class Compiler:
                         fold=rules, bounds=bounds, lease=leases.terms(self, m, "lease", what), relations=relations,
                         join=joins.compile_join(self, m, what), about=about, final={s: {} for s in final},
                         finished=list(done), lost=list(lost), moves_from={e: tuple(s) for e, s in only.items()},
-                        if_unchanged=tuple(fenced), attention=attention, group=self.group(m, what), display=display)
+                        if_unchanged=tuple(fenced), attention=attention, group=self.group(m, what), display=display,
+                        computed=list(getattr(self, "computed_order", None) or []))
 
     def display_name(self, m: Map, what: str, declared: dict):
         """``name:`` (SPEC §5a, *An object's name*): an expression over the folded object's fields (``tags.Name or

@@ -656,3 +656,35 @@ def test_the_search_box_sets_a_has_term_and_the_query_box_completes_paths_and_va
     assert query_box(pg).locator(".tok-string").count() >= 1 and query_box(pg).locator(".tok-typeName").count() >= 1
     assert settled(pg) == []
     pg.close()
+
+
+def test_the_schema_computed_column_writes_from_and_takes_the_fold_out(browser, served):
+    p, url = served
+    pg = opened(browser, url + "/goals")
+    pg.hover("#nav")
+    pg.get_by_role("button", name="New projection").click()
+    pg.get_by_label("The new projection's name").fill("svc")
+    pg.keyboard.press("Enter")
+    pg.wait_for_url("**/svc", timeout=WAIT)
+    for f in ("desired", "running", "health"):
+        pg.get_by_label("A new field's name").fill(f)
+        pg.get_by_role("button", name="Add a field").click()
+        pg.get_by_label(f"The name of {f}").wait_for(timeout=WAIT)
+    pg.get_by_label("The fold of health").select_option("max")
+    yaml_has(pg, "fold: max")
+    box = pg.get_by_label("The expression health is computed from")
+    box.fill("'low' if runn")
+    opts = pg.locator("datalist#wb-from-health option").evaluate_all("os => os.map(o => o.value)")
+    assert opts == ["'low' if running"]                           # the word typed completed with the other fields
+    box.fill("'low' if running < desired else 'ok'")
+    pg.keyboard.press("Enter")
+    yaml_has(pg, "'low' if running < desired else 'ok'")
+    assert "from: " in pg.locator(".wb-yaml .cm-content").text_content()
+    text = pg.locator(".wb-yaml .cm-content").text_content()
+    assert "fold: max" not in text                                # a computed field is never folded
+    assert pg.get_by_label("The fold of health").count() == 0
+    # it is no key field to choose
+    keyside = pg.locator("aside.wb-side section.wb-keyside")
+    keyside.get_by_role("button", name="Put a field in the key").click()
+    menu = keyside.get_by_role("menu", name="The fields not in the key")
+    assert sorted(menu.get_by_role("menuitem").all_inner_texts()) == ["desired", "running"]

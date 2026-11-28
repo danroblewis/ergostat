@@ -25,7 +25,7 @@ export interface OpenedIn { o: Opened; live: Live | null; onUsual: () => void }
 export interface MappingEdits {
   setTop: (k: "name" | "time", v: string) => void;
   addField: (name: string, type?: string) => void;
-  setField: (name: string, part: "type" | "values" | "fold" | "description", v: string) => void;
+  setField: (name: string, part: "type" | "values" | "fold" | "from" | "description", v: string) => void;
   renameField: (from: string, to: string) => void;
   removeField: (name: string) => void;
   setKind: (kind: string, entry: string, v: string) => void;
@@ -100,7 +100,7 @@ function Picked({ k, draft, ed, editable, path, value, onDone }: {
       <p><code>{expr}</code> = <code>{short(value)}</code>{" "}
         <button type="button" className="ghost" aria-label="Close" onClick={onDone}>×</button></p>
       <p>Into{" "}
-        {draft.fields.map((f) => (
+        {draft.fields.filter((f) => !f.from).map((f) => (
           <button key={f.name} type="button" disabled={!editable} onClick={done(() => ed.setKind(k.name, f.name, expr))}>{f.name}</button>
         ))}{" "}
         <button type="button" disabled={!editable} onClick={done(() => ed.ignore(expr))}>ignore this path</button>
@@ -214,7 +214,7 @@ function KindMapping({ k, draft, ed, editable, fold, opened }: {
     for (const o of draft.kinds) {
       if (o.name === k.name) continue;
       for (const [f, ex] of o.values) {
-        if (had.current.has(f) || !draft.fields.some((x) => x.name === f) || out.some(([g]) => g === f)) continue;
+        if (had.current.has(f) || !draft.fields.some((x) => x.name === f && !x.from) || out.some(([g]) => g === f)) continue;
         if (isPath(ex) && present.has(ex.trim())) out.push([f, ex.trim(), o.name]);
       }
     }
@@ -277,7 +277,7 @@ function KindMapping({ k, draft, ed, editable, fold, opened }: {
   }, [pop]);
 
   const rows = [...k.values.map(([f]) => f), ...adding.filter((f) => !(f in told))];
-  const untold = draft.fields.map((f) => f.name).filter((f) => !rows.includes(f));
+  const untold = draft.fields.filter((f) => !f.from).map((f) => f.name).filter((f) => !rows.includes(f));
 
   return (
     <details ref={box} className={`wb-map${complete ? " done" : ""}`} open={open} data-kind={k.name}

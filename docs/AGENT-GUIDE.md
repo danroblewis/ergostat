@@ -1428,6 +1428,14 @@ since 1h ago; the record spans 3d`). An outside log replayed into the record is 
    (`values:` takes any case, compared exactly), and `int(x)`, `float(x)`, `str(x)`, `json(x)` (JSON text parsed:
    `json(data.properties.responseBody).sku`), `lower(x)`, `upper(x)` convert, each null when it cannot. A projection's
    name may hold `_`.
+
+   **Compute a state rather than map one** (`from:` on the field, SPEC §5a, *Computed fields*) when no event carries
+   it (a service's events say how many instances are wanted, how many run and that a stop was asked; none says
+   `degraded`), or when several projections need different state sequences over the same events (one service's
+   health, another's capacity). Map the facts the events tell into plain fields, declare the states under `values:`
+   (never left for the expression to imply), and write the state as an expression of those fields; its changes are
+   moves as a mapped state's are, and no kind may also give it a value. Map a state when an event says it outright
+   (EC2's `detail.state`): a computed one would only repeat it.
 5. **Review it**: `ergostat projection review draft.yaml [--item KEY] [--json]` (MCP `projection_review`) holds the
    draft against its events as the workbench does: per kind of event what it took and in how many objects; the
    objects; the residual (the *remainder* no kind takes, by shape; *no key*, with the key fields each kind does not

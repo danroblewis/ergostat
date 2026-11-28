@@ -395,7 +395,8 @@ def distributions(kind, items: list) -> list[dict]:
         t = d.type if d is not None else Type(None)
         vals = [(it.state if f == "state" and kind.states else it.fields.get(f)) for it in items]
         have = [v for v in vals if v is not None]
-        row = {"field": f, "type": str(t), "declared": d is not None, "have": len(have), "objects": len(items)}
+        row = {"field": f, "type": str(t), "declared": d is not None, "have": len(have), "objects": len(items),
+               **({"computed": True, "from": d.expr} if d is not None and d.expr else {})}
         nums = [v for v in have if isinstance(v, (int, float)) and not isinstance(v, bool)]
         if t.base == "time" or (t.base is None and have and all(seconds(v) is not None and isinstance(v, str) for v in have[:50])):
             secs = [s for s in (seconds(v) for v in have) if s is not None]

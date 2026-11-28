@@ -1052,7 +1052,8 @@ class ItemKind:
     kinds: list = field(default_factory=list)      # its kinds of event (EventKind), in order: the first whose when holds
     declared: dict = field(default_factory=dict)   # field → fields.Field: what an object is (its fields: section)
     own_time: object = None        # the event's own time (handlers.Value; ``time:``); None: the recorded time
-    ignore: tuple = ()             # the event's paths known not to matter (``ignore:``): the workbench's, never folded
+    computed: list = field(default_factory=list, compare=False)   # (field, handlers.Value): its from: fields, in order
+    ignore: tuple = ()           # the event's paths known not to matter (``ignore:``): the workbench's, never folded
     functions: dict = field(default_factory=dict, repr=False, compare=False)   # the model's fold functions, by name
     memo: dict = field(default_factory=dict, repr=False, compare=False)        # event id → its kind of event
     # its display name (``name:``, a handlers.Value over the folded object's fields): shown, never its identity or

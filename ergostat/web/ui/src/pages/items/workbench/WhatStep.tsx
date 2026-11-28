@@ -12,7 +12,7 @@ import type { MappingEdits } from "./MappingStep";
  *  chosen: the events' own item. */
 export function KeyFields({ draft, editable, onChange }: { draft: Draft; editable: boolean; onChange: (names: string[]) => void }) {
   const key = draft.key;
-  const others = draft.fields.map((f) => f.name).filter((f) => !key.includes(f));
+  const others = draft.fields.filter((f) => !f.from).map((f) => f.name).filter((f) => !key.includes(f));
   const [picking, setPicking] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -55,7 +55,7 @@ function Fields({ draft, ed, editable }: { draft: Draft; ed: MappingEdits; edita
   const add = () => { const v = name.trim(); if (/^[A-Za-z_][\w-]*$/.test(v)) { ed.addField(v); setName(""); } };
   return (
     <table className="wb-table" aria-label="Its fields">
-      <thead><tr><th>Field</th><th>type</th><th>values</th><th>fold</th><th>description</th><th /></tr></thead>
+      <thead><tr><th>Field</th><th>type</th><th>values</th><th>fold</th><th>computed</th><th>description</th><th /></tr></thead>
       <tbody>
         {draft.fields.map((f) => (
           <tr key={f.name}>
@@ -65,26 +65,51 @@ function Fields({ draft, ed, editable }: { draft: Draft; ed: MappingEdits; edita
             <td><Commit className="mono" value={f.values} label={`The values of ${f.name}`} disabled={!editable} placeholder="any"
               onCommit={(v) => ed.setField(f.name, "values", v)} /></td>
             <td>
-              <select value={f.fold || "replace"} aria-label={`The fold of ${f.name}`} disabled={!editable}
-                onChange={(e) => ed.setField(f.name, "fold", e.target.value)}>
-                {(FOLDS.includes(f.fold) || !f.fold ? FOLDS : [f.fold, ...FOLDS]).map((x) => <option key={x}>{x}</option>)}
-              </select>
+              {f.from ? <span className="muted small" title="A computed field is worked out after each event, never folded">computed</span> : (
+                <select value={f.fold || "replace"} aria-label={`The fold of ${f.name}`} disabled={!editable}
+                  onChange={(e) => ed.setField(f.name, "fold", e.target.value)}>
+                  {(FOLDS.includes(f.fold) || !f.fold ? FOLDS : [f.fold, ...FOLDS]).map((x) => <option key={x}>{x}</option>)}
+                </select>
+              )}
             </td>
+            <td><FieldExpr value={f.from} names={[...draft.fields.map((x) => x.name).filter((x) => x !== f.name), "key"]}
+              label={`The expression ${f.name} is computed from`} list={`wb-from-${f.name}`} disabled={!editable}
+              placeholder="told by events" onCommit={(v) => ed.setField(f.name, "from", v)} /></td>
             <td><Commit value={f.description} label={`The description of ${f.name}`} disabled={!editable}
               onCommit={(v) => ed.setField(f.name, "description", v)} /></td>
             <td><button type="button" className="ghost" disabled={!editable} aria-label={`Remove ${f.name}`} onClick={() => ed.removeField(f.name)}>×</button></td>
           </tr>
         ))}
         <tr>
-          <td colSpan={6}>
+          <td colSpan={7}>
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="a field's name" aria-label="A new field's name"
               disabled={!editable} onKeyDown={(e) => { if (e.key === "Enter") add(); }} />{" "}
             <button type="button" disabled={!editable || !name.trim()} onClick={add}>Add a field</button>
           </td>
         </tr>
       </tbody>
-      <tfoot><tr><td colSpan={6} className="muted small">type: {TYPES.join(", ")}; values: the only values it may hold (the field named <code>state</code> is the lifecycle).</td></tr></tfoot>
+      <tfoot><tr><td colSpan={7} className="muted small">type: {TYPES.join(", ")}; values: the only values it may hold (the field named <code>state</code> is the lifecycle); computed: an expression of its other fields (<code>&apos;low&apos; if running &lt; desired else &apos;ok&apos;</code>), worked out after each event, which no event tells.</td></tr></tfoot>
     </table>
+  );
+}
+
+/** A box for an expression of the object's fields (`from:`), the word being typed completed with the field names. */
+function FieldExpr({ value, names, label, list, disabled, placeholder, onCommit }: {
+  value: string; names: string[]; label: string; list: string; disabled: boolean; placeholder?: string; onCommit: (v: string) => void;
+}) {
+  const [v, setV] = useState(value);
+  useEffect(() => setV(value), [value]);
+  const done = () => { if (v.trim() !== value.trim()) onCommit(v.trim()); };
+  const m = /^([\s\S]*?)([A-Za-z_]\w*)?$/.exec(v)!;
+  const head = m[1], word = m[2] || "";
+  const ok = names.filter((f) => /^[A-Za-z_]\w*$/.test(f));
+  const offered = ok.filter((f) => f.startsWith(word) && f !== word && !/[.\]'"]$/.test(head)).map((f) => head + f);
+  return (
+    <>
+      <input className="mono" list={list} value={v} disabled={disabled} spellCheck={false} aria-label={label} placeholder={placeholder}
+        onChange={(e) => setV(e.target.value)} onBlur={done} onKeyDown={(e) => { if (e.key === "Enter") done(); }} />
+      <datalist id={list}>{offered.slice(0, 50).map((o) => <option key={o} value={o} />)}</datalist>
+    </>
   );
 }
 

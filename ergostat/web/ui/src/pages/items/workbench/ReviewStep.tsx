@@ -27,7 +27,7 @@ const val = (v: unknown) => (v === undefined ? "–" : short(v, 50));
 function Distribution({ f }: { f: any }) {
   const head = (
     <h4>
-      <code>{f.field}</code> <span className="muted small">{f.type || "any"}{f.declared ? "" : ", not declared"} · in {n(f.have)} of {n(f.objects)} objects
+      <code>{f.field}</code> <span className="muted small">{f.type || "any"}{f.declared ? "" : ", not declared"}{f.computed ? ", computed" : ""} · in {n(f.have)} of {n(f.objects)} objects
         {f.distinct != null ? ` · ${n(f.distinct)} values` : ""}{f.min != null ? ` · ${val(f.min)} to ${val(f.max)}` : ""}</span>
     </h4>
   );

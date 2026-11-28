@@ -2360,7 +2360,7 @@ projections:
 | `name` | expression of its fields | the key | An object's display name (`tags.Name or instance_id`): over the folded object's fields and `key`, shown in place of the key, never its identity (*An object's name*, below) |
 | `time` | expression | the recorded time | The event's own time (seconds, or ISO 8601 text): the fold is by it (without it, in the record's order), and an expression's `time` is it |
 | `ignore` | list of paths | none | The event's paths known not to matter (`[type, source, data.version]`, each as the expressions write it; a path ignores all under it): the workbench's list, which hides them in its events and leaves them out of the paths left to decide (*The workbench*, below). The fold never reads it; `check` says `bad-ignore` for anything but a list of paths |
-| `fields` | map of field → `{type, fold, description}` | none | What an object is (*Fields*, below). A field's entry may be its type alone (`name: text`) or nothing (`name:`: any value, replace) |
+| `fields` | map of field → `{type, values, fold, from, description}` | none | What an object is (*Fields*, below; `from:` a computed field's expression, *Computed fields*). A field's entry may be its type alone (`name: text`) or nothing (`name:`: any value, replace) |
 | `defaults` | map of field → value | none | The values every kind of event under `events:` gives its fields unless the kind gives its own (*Defaults*, below) |
 | `events` | map of kind of event → entry | every event, its data spread in | The kinds of event it reads (*Kinds of event*, below), in order: the first whose `when:` holds takes an event |
 | `show` | list of field names | its declared fields | The columns of the projection's own page (`/PROJECTION`) and of `ergostat item` |
@@ -2396,6 +2396,44 @@ new object starts in the first. A change of it is a move, recorded in the item's
 the stocks of items in a state, sensors, leases, joins, finished states). Every other `one of` field's changes are
 kept in the item's history like any field's, and the workbench counts them as a lifecycle (its transitions, below); only
 `state`'s are moves (2026-11-27: one lifecycle per projection drives the model's counts; the others are reviewed).
+
+**Computed fields** (2026-11-28, the owner's design: "projections can determine their state based on some expression
+of the other fields they have"). A field's `from:` is an expression (the same allow-listed evaluator, *Expressions*,
+below; a block of several lines is one expression) over the object's **other fields**: the names in scope are its
+declared fields (`state` among them) and `key`, never the event (`data`, `time`, `type`, `source`, `current`). After
+each event is folded into an object (in the fold's order: by event time when the projection names `time:`, an event
+delivered twice once), the computed fields are worked out again, in dependency order (one may read another), and each
+result is the field's value, typed: checked against its `type:` or `values:` (one with neither takes any value). A
+value not of its type, or not among its `values:`, refuses the event for that object, said as other bad values are;
+an expression that raises (`running < desired` with `running` null) gives null, and a null state moves nothing. The
+list of states is declared under `values:`, never read out of the expression. A computed field's changes are kept
+in the item's history like any field's (rule `computed`), and a computed `state`'s are moves: recorded, timed and
+counted as an event-written state's are (the flows, sensors' entering and leaving, `final:`, finished states, the
+forecast, the review's lifecycle and contradictions). Computed values are part of the folded object (the item index,
+snapshots, catch-up equal to a rebuild), and the expressions are in the index's key, so a change folds the record
+again. `check`: no kind of event (nor `defaults:`) gives a computed field a value (`computed-field`), a computed field
+folds by nothing but replace and is no key field (`bad-computed`, `bad-key`), its expression reads only the object's
+fields (`bad-computed`: `data is the event's`), and a cycle among computed fields is said, naming it
+(`computed-cycle`: `short -> health -> short`). A spread never brings a computed field. The workbench's Schema step
+has a *computed* column for it; the Mapping step offers no computed field as a target.
+
+```yaml
+fields:
+  desired: {type: integer}
+  running: {type: integer}
+  stop_requested: {type: boolean}
+  state:
+    values: [pending, running, degraded, stopping, stopped]
+    from: |
+      'stopped'  if running == 0 and stop_requested else
+      'stopping' if stop_requested else
+      'pending'  if running == 0 else
+      'degraded' if running < desired else
+      'running'
+```
+
+Two projections over the same events may each compute their own state from the fields they fold (a service's health,
+and its capacity: `'empty' if not running else 'full' if running >= desired else 'some'`).
 
 **Kinds of event.** Each entry of `events:` is a kind of event, named by the person who writes it (lowercase letters,
 digits and `-`). Its `when:` (an expression, or `true`: every event) says which events of the query's result it takes;
@@ -2546,7 +2584,7 @@ rule when an entry sets them with a plain value.
 field's value that is a fold call (`bad-key`), a value for an undeclared field (`undeclared-field`), a fold that does not fit
 its field's type (`bad-fold`), a type that is none (`bad-type`), a constant not in a `one of` (`not-one-of`,
 `unknown-state`), an unknown function (`unknown-function`), an expression that does not parse or uses what is not
-allowed (`bad-expression`), a kind of event with no `when:` (`missing-when`), and the old keys (`match:`, `states:`,
+allowed (`bad-expression`), a kind of event with no `when:` (`missing-when`), a computed field given a value by a kind, folded, reading the event or in a cycle (`computed-field`, `bad-computed`, `computed-cycle`), and the old keys (`match:`, `states:`,
 `otherwise:`: `unknown-key`; the old syntax is gone, `scripts/convert_projections.py` rewrote this repository's). Its
 finding: a kind of event that does not tell one of the key's fields (`key-not-told`, naming the kind and the fields).
 

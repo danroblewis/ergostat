@@ -3,7 +3,7 @@ import { Document, isMap, isScalar, isSeq, parse as parseYaml, parseDocument, ty
 /* A projection's definition (SPEC §5a), its YAML body read into what the workbench's steps show, and each edit a step
    makes written back into the text, the rest of it (comments, order, quoting) kept as it was. Pure: no React. */
 
-export interface FieldDef { name: string; type: string; values: string; fold: string; description: string }
+export interface FieldDef { name: string; type: string; values: string; fold: string; from: string; description: string }
 export interface KindDef { name: string; when: string; values: [string, string][] }
 /** `key`: the names of the fields that are an object's identity, in order (none: the events' own item). */
 export interface Draft { query: string; key: string[]; name: string; time: string; ignore: string[]; fields: FieldDef[]; kinds: KindDef[] }
@@ -55,6 +55,7 @@ export function read(text: string): { draft: Draft } | { error: string } {
     name, type: typeOf(v),
     values: v && typeof v === "object" && Array.isArray(v.values) ? flow(v.values) : "",
     fold: v && typeof v === "object" && !Array.isArray(v) ? said(v.fold) : "",
+    from: v && typeof v === "object" && !Array.isArray(v) ? said(v.from).trim() : "",
     description: v && typeof v === "object" && !Array.isArray(v) ? said(v.description) : "",
   }));
   const kinds: KindDef[] = Object.entries(o.events && typeof o.events === "object" ? o.events : {}).map(([name, v]: [string, any]) => {
@@ -182,9 +183,10 @@ export const addField = (text: string, name: string, type = "text") =>
     m.items.push(doc.createPair(name, n) as any);
   });
 
-/** One part of a field's entry (its type, values, fold or description; "" takes it out). Its values (the only ones it
-    may hold, `values: [a, b]`) are typed as a list, with or without the brackets. */
-export const setField = (text: string, name: string, part: "type" | "values" | "fold" | "description", v: string) =>
+/** One part of a field's entry (its type, values, fold, from or description; "" takes it out). Its values (the only
+    ones it may hold, `values: [a, b]`) are typed as a list, with or without the brackets. Its `from:` (an expression of
+    the object's other fields: the field is computed) takes out its fold and every kind's value for it. */
+export const setField = (text: string, name: string, part: "type" | "values" | "fold" | "from" | "description", v: string) =>
   edit(text, (doc, top) => {
     const m = mapAt(doc, top, "fields");
     const p = pairOf(m, name);
@@ -197,7 +199,14 @@ export const setField = (text: string, name: string, part: "type" | "values" | "
     }
     const f = p.value as YAMLMap;
     const value = part === "values" ? valuesOf(v) : part === "fold" && v === "replace" ? "" : v;
-    put(doc, f, part, value, ["type", "values", "fold", "description"]);
+    if (part === "from" && v.trim()) {                  // computed: never folded, and no kind of event tells it
+      f.delete("fold");
+      const ev = pairOf(top, "events");
+      if (ev && isMap(ev.value)) for (const k of (ev.value as YAMLMap).items) if (isMap(k.value)) (k.value as YAMLMap).delete(name);
+      const df = pairOf(top, "defaults");
+      if (df && isMap(df.value)) (df.value as YAMLMap).delete(name);
+    }
+    put(doc, f, part, part === "from" ? v.trim() : value, ["type", "values", "fold", "from", "description"]);
   });
 
 /** A field renamed, and in every kind of event that tells it. */

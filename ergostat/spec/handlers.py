@@ -360,7 +360,7 @@ def compile_value(raw, functions: dict | None = None, names=NAMES) -> Value:
         return Value(raw, literal=copy.deepcopy(raw))
     src = raw.strip()
     try:
-        tree = ast.parse(src, mode="eval").body
+        tree = ast.parse(f"(\n{src}\n)" if "\n" in src else src, mode="eval").body   # a block's lines: one expression
     except SyntaxError as e:
         raise BadExpr(f"{raw!r} does not parse: {e.msg} (text is quoted: set('{raw}'))") from None
     fns = {**BUILTINS, **(functions or {})}
@@ -715,7 +715,7 @@ def apply_event(kind, it, e: dict) -> tuple[list[tuple], str | None, str | None,
                     raise PatchError(f"...: a spread takes an object, and {v.text!r} gave "
                                      f"{json.dumps(got, default=str)[:60]}")
                 for k, x in got.items():
-                    if k in ek.fields or k == "state" and kind.states:
+                    if k in ek.fields or k == "state" and kind.states or getattr(declared.get(k), "expr", ""):
                         continue                     # the entry's own value for it wins
                     d = declared.get(k)
                     rule = (kind.fold or {}).get(k)
@@ -771,6 +771,7 @@ def apply_event(kind, it, e: dict) -> tuple[list[tuple], str | None, str | None,
             else:
                 fields[f] = new
             changed[f] = rule
+        to = computed(kind, it, fields, changed, to)
     except PatchError as err:
         return [], str(err), None, ek.name
     except Exception as err:                         # noqa: BLE001 - a fold never stops on one event
@@ -797,6 +798,44 @@ def apply_event(kind, it, e: dict) -> tuple[list[tuple], str | None, str | None,
     it.acc.clear()
     it.acc.update(acc)
     return done, None, to, ek.name
+
+
+def computed(kind, it, fields: dict, changed: dict, to):
+    """The computed fields (``from:``, SPEC §5a, *Computed fields*) worked out again over the object as this event
+    left it (``fields``, its ``key``, its ``state``), in their order, each written into ``fields`` (``changed``: rule
+    ``computed``). The state it moves to: a computed ``state``'s value (its move), else the event's ``to``. An
+    expression that raises is null (a null state moves nothing); a value not of its field's type, or not one of its
+    ``values:``, refuses the event (PatchError)."""
+    comp = getattr(kind, "computed", None)
+    if not comp:
+        return to
+    declared = kind.declared
+    scope = {**fields, "key": getattr(it, "id", None), "state": to or it.state}
+    for f, v in comp:
+        new = evaluate(v, scope)
+        if isinstance(new, Each):
+            new = list(new)
+        d = declared.get(f)
+        if new is not None and d is not None and not d.type.fits(new):
+            raise PatchError(f"{f}: {json.dumps(new, default=str)[:60]} is not {d.type} (from: {v.text})")
+        if f == "state":
+            if new is not None:
+                if not isinstance(new, str) or (kind.states and new not in kind.states):
+                    raise PatchError(f"state: {json.dumps(new, default=str)[:60]} is not one of its states "
+                                     f"({', '.join(kind.states) or 'none'}) (from: {v.text})")
+                to = new
+            scope["state"] = to or it.state
+            continue
+        new = copy.deepcopy(new) if isinstance(new, (dict, list)) else new
+        scope[f] = new
+        if new is None:
+            if f in fields:
+                fields.pop(f)
+                changed[f] = "computed"
+        elif f not in fields or not (type(fields[f]) is type(new) and fields[f] == new):
+            fields[f] = new
+            changed[f] = "computed"
+    return to
 
 
 def key_glob(tree) -> str | None:
