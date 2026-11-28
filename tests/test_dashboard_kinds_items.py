@@ -24,13 +24,10 @@ BOARD = """\
       - {panel: item-list, projection: ticket, state: doing, q: t, sort: -title, finished: show, n: 10}
       - {panel: item-summary, item: ticket/1}
       - {panel: item-why, item: ticket/4}
-      - {panel: item-path, item: ticket/1}
       - {panel: item-relations, item: ticket/1}
       - {panel: item-fields, item: ticket/1}
       - {panel: item-refused, item: ticket/1}
-      - {panel: item-moves, item: ticket/1}
-      - {panel: item-events, item: ticket/1}
-      - {panel: item-changes, item: ticket/1, history: title}
+      - {panel: item-history, item: ticket/1}
       - {panel: item-state-timeline, item: ticket/1}
       - {panel: item-field-chart, item: ticket/1, field: title}
       - {panel: item-events-histogram, item: ticket/1}
@@ -47,10 +44,10 @@ def test_each_kind_checks_and_round_trips(tmp_path):
     got = plain(spec.dashboards["items"])["panels"]
     assert [p["panel"] for p in got] == ["projections", "items-by-projection", "projection-now", "projection-model",
                                         "projection-definition", "item-list",
-                                        "item-summary", "item-why", "item-path", "item-relations", "item-fields",
-                                        "item-refused", "item-moves", "item-events", "item-changes",
+                                        "item-summary", "item-why", "item-relations", "item-fields",
+                                        "item-refused", "item-history",
                                         "item-state-timeline", "item-field-chart", "item-events-histogram"]
-    assert got[5]["sort"] == "-title" and got[5]["n"] == 10 and got[14]["history"] == "title" and got[0]["fit"] is True
+    assert got[5]["sort"] == "-title" and got[5]["n"] == 10 and got[0]["fit"] is True
 
 
 @pytest.mark.parametrize("old, new, code, about", [
@@ -77,9 +74,8 @@ def test_each_kind_checks_and_round_trips(tmp_path):
     ("{panel: item-summary, item: ticket/1}", "{panel: item-summary}", "bad-dashboard", ""),
     ("{panel: item-why, item: ticket/4}", "{panel: item-why, item: 4}", "bad-dashboard", ""),
     ("{panel: item-fields, item: ticket/1}", "{panel: item-fields, item: [ticket/1]}", "bad-dashboard", ""),
-    ("{panel: item-changes, item: ticket/1, history: title}", "{panel: item-changes, item: ticket/1, history: [title]}",
-     "bad-dashboard", ""),
-    ("{panel: item-events, item: ticket/1}", "{panel: item-events, item: ticket/1, projection: ticket}", "unknown-key", ""),
+    ("{panel: item-history, item: ticket/1}", "{panel: item-history, item: ticket/1, history: title}", "unknown-key", ""),
+    ("{panel: item-refused, item: ticket/1}", "{panel: item-moves, item: ticket/1}", "bad-dashboard", ""),
     ("{panel: item-state-timeline, item: ticket/1}", "{panel: item-state-timeline}", "bad-dashboard", ""),
     ("{panel: item-field-chart, item: ticket/1, field: title}", "{panel: item-field-chart, item: ticket/1, field: [title]}",
      "bad-dashboard", ""),
@@ -111,10 +107,10 @@ def test_the_dashboard_answers_each_panel_as_its_own_endpoint(tmp_path, monkeypa
     assert by["projection-now"]["states"] and len(by["projection-now"]["times"]) == 30
     assert [i["id"] for i in by["item-list"]["items"]] and all(i["state"] == "doing" for i in by["item-list"]["items"])
     assert [i["id"] for i in by["items-by-projection"]["items"]] == ["ticket/1"]          # searched: t1 alone
-    for k in ("item-summary", "item-path", "item-relations", "item-fields", "item-refused", "item-moves", "item-events",
+    for k in ("item-summary", "item-relations", "item-fields", "item-refused",
               "item-state-timeline", "item-events-histogram"):
         assert by[k]["id"] == "ticket/1" and "history" not in by[k], k
-    assert by["item-changes"]["id"] == "ticket/1" and set(by["item-changes"]["history"]) == {"title"}
+    assert by["item-history"]["id"] == "ticket/1" and "title" in by["item-history"]["history"]   # every field's
     assert by["item-field-chart"]["id"] == "ticket/1" and "title" in by["item-field-chart"]["history"]   # every field's
     assert by["item-why"]["known"] and not by["item-why"]["done"]                  # ticket/4 is doing, not done
     # each the very answer its endpoint gives, asked on its own of the same moment (why: only as the record is now)

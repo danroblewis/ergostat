@@ -201,7 +201,9 @@ def _moved(p, spec: Spec, now: float, found: dict[str, dict], scope=None) -> dic
             new = fresh() if x and x["state"] == "dismissed" else {}
             event(p, k, "raised" if x is None else "reopened",   # a dismissal's part changed: a new finding, untried
                   {**{a: b for a, b in r.items() if a != "id"}, **({"raised": now} if x is None else {}), "since": now,
-                   "version": v, "change": None, "why": None, **new})
+                   "version": v, "change": None, "why": None, **new,
+                   **({} if x is None else {"because": "check finds it again, and what it is about has changed since it "
+                                                        "was " + str(x["state"])})})
             moved["raised" if x is None else "reopened"] += 1
             x = {**(x or {}), **r, **new, "state": "open", "since": now, "version": v}
             have[k] = x
@@ -221,12 +223,13 @@ def _moved(p, spec: Spec, now: float, found: dict[str, dict], scope=None) -> dic
             c = live[-1]
             if x["state"] != "proposed" or x.get("change") != c["id"]:
                 event(p, k, "proposed", {"change": c["id"], "by": c.get("made_by") or "ergostat", "kind": c.get("kind"),
-                                         "why": None})
+                                         "why": None, "because": f"a change cites it: {pr.item_of(c['id'])}"})
                 moved["proposed"] += 1
             continue
         if x["state"] == "held":
             if x.get("version") != v and not x.get("owner"):     # the model has changed since: worth another look
-                event(p, k, "reopened", {"version": v, "why": None, "change": None, "since": now})
+                event(p, k, "reopened", {"version": v, "why": None, "change": None, "since": now,
+                                         "because": "the model has changed since it was held: worth another look"})
                 moved["reopened"] += 1
             continue
         last = max([*ended, *written], key=lambda c: c.get("decided") or c.get("made") or 0.0, default=None)
@@ -239,7 +242,9 @@ def _moved(p, spec: Spec, now: float, found: dict[str, dict], scope=None) -> dic
                                  "owner": last["state"] == "dismissed"})
             moved["held"] += 1
         elif x["state"] == "proposed":                    # its change was let go (superseded): open again
-            event(p, k, "reopened", {"change": None, "version": v, "why": None, "since": now})
+            event(p, k, "reopened", {"change": None, "version": v, "why": None, "since": now,
+                                     "because": f"its change {pr.item_of(x['change'])} was let go (superseded)"
+                                     if x.get("change") else "the change that cited it was let go"})
             moved["reopened"] += 1
     for k, x in have.items():
         if not scope(x):
@@ -294,7 +299,7 @@ def _answer(p, spec: Spec, x: str, yes: bool, note: str | None, by: str) -> str:
                                  "tier": "events" if r.get("source") == "events" else "ai", "since": time.time(),
                                  "tried": {**(r.get("tried") or {}), "ai": 0}, "version": ver.version(spec),
                                  "failed": {**(r.get("failed") or {}), "ai": 0}, "error": None,
-                                 "approved_by": by}, source=by)
+                                 "approved_by": by, "because": f"approved by {by}: tried again"}, source=by)
         return "approved: open again, for the " + ("drafter" if r.get("source") == "events" else "ai tier")
     if not (note or "").strip():
         raise RequestError("a dismissal says why: --note WHY")

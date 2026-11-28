@@ -6,6 +6,7 @@ it changed at least twice), and its events per time bucket by kind of event."""
 from __future__ import annotations
 
 import json
+import re
 import urllib.parse
 import urllib.request
 
@@ -89,6 +90,22 @@ def test_an_items_show_page_charts_its_states_numbers_and_events(browser, served
     kinds = hist.locator(".item-histogram-kinds li").evaluate_all("ls => ls.map(l => l.dataset.kind)")
     assert {"state-change", "reboot"} <= set(kinds)
     assert hist.locator("rect[data-kind=reboot]").count() >= 1
+    title = pg.locator(".panel-kind-item-events-histogram .panel-title").inner_text()
+    assert re.fullmatch(r"Its events per [\w ]+, by kind", title), title        # its bucket's size, said
+    bucket = hist.locator("rect.item-histogram-hit").nth(                        # a bucket with events: its tip
+        int(hist.locator("rect[data-kind]").first.evaluate("r => Math.floor(+r.getAttribute('x') / (600 / "
+                                                              "document.querySelectorAll('.item-histogram-hit').length))")))
+    bucket.hover()
+    tip = pg.locator("[data-testid=histogram-tip]")
+    tip.wait_for(timeout=WAIT)
+    assert " to " in tip.locator(".chart-tip-time").inner_text()
+    assert re.search(r"\b\d+\b", tip.locator("[data-kind]").first.inner_text()), tip.inner_text()
+
+    # a state's span says the event that moved it there
+    span = pg.locator(".item-timeline-span").nth(1)
+    assert "moved here by state-change" in (span.get_attribute("title") or ""), span.get_attribute("title")
+    span.click()
+    assert "moved here by state-change" in pg.locator("[data-testid=state-said]").inner_text()
 
     kinds = ["panel-kind-item-summary", "panel-kind-item-state-timeline", "panel-kind-item-field-chart",
              "panel-kind-item-events-histogram", "panel-kind-item-fields"]       # summary first, the charts, the rest

@@ -4,15 +4,14 @@ import { useDashboards } from "../../../state/dashboards";
 import { useTime } from "../../../state/time";
 import { ProjectionStates } from "../../charts/ProjectionStates";
 import {
-  eventBuckets, EventsHistogram, FieldCharts, numericCandidates, numericSeries, StateTimeline, stateSpans,
+  bucketWords, eventBuckets, EventsHistogram, FieldCharts, numericCandidates, numericSeries, StateTimeline, stateSpans,
 } from "../../charts/ItemCharts";
 import { PanelFrame } from "../../charts/PanelView";
 import { FinishedNote, Pager } from "../../controls";
 import { Decisions, entryOf, INBOX } from "../../Decisions";
 import { nowS } from "../../../lib/format";
 import {
-  CHANGES_SHOWN, hasPath, hasRelations, ItemChanges, ItemEvents, ItemFields, ItemMoves, ItemPath, ItemRefused, ItemRelations,
-  ItemSummary, ItemWhy, whySays,
+  hasRelations, ItemFields, ItemHistory, ItemRefused, ItemRelations, ItemSummary, ItemWhy, whySays,
 } from "../../itemParts";
 import { hiddenStates, ItemsTable, ProjectionBar, ProjectionGraph } from "../../items";
 import { EveryProjection, ProjectionModel, ProjectionsOverview, ProcessMapLink } from "../../projectionParts";
@@ -27,8 +26,8 @@ import { asQueryPanel } from "./core";
    asks its own endpoint with exactly its parameters, unless the page has asked the same (panels/shared.tsx).
 
    A page binds a panel to its address with keys of its own, never declared in the model: `onParams(changes)` (a list's
-   page, sort, size and finished; an item's changes asked for, `history`), `page` (the list's page), `quiet` (a part
-   with nothing to say is not drawn at all) and `folded` (a definition shown when asked). */
+   page, sort, size and finished), `page` (the list's page), `quiet` (a part with nothing to say is not drawn at all)
+   and `folded` (a definition shown when asked). */
 
 type FrameProps = PanelBodyProps & { tools?: ReactNode };
 type Changes = Record<string, string | number | null>;
@@ -232,14 +231,18 @@ function part(title: string, draw: (d: any, def: PanelDef) => ReactNode, nothing
   };
 }
 
+/** Why it is not done, in a line, only while it is unfinished and something known holds it (never for an item of
+ *  ergostat's built-in projections: their bookkeeping is ergostat's to move, not the owner's). */
 function ItemWhyFrame({ def, every, refreshKey, tools }: FrameProps) {
   const { at } = useTime();                     // why is asked of the record as it is now, never at a past moment
-  const got = usePanelAnswer<any>(def.item && !at ? "why" : null, { item: def.item }, every === undefined ? 10000 : every, refreshKey);
+  const own = String(def.item || "").startsWith("ergostat.");
+  const got = usePanelAnswer<any>(def.item && !at && !own ? "why" : null, { item: def.item }, every === undefined ? 10000 : every, refreshKey);
   const why = got.data;
-  if (def.quiet && !whySays(why)) return null;
+  if (def.quiet && (own || !whySays(why))) return null;
   return (
     <Framed def={def} title="Why isn't this done?" tools={tools}>
-      {at ? <p className="muted">Asked of the record as it is now; this page is at a past moment.</p>
+      {own ? <p className="muted">It is ergostat's own bookkeeping: ergostat moves it.</p>
+        : at ? <p className="muted">Asked of the record as it is now; this page is at a past moment.</p>
         : whySays(why) ? <ItemWhy why={why} />
         : why ? <p className="muted">{why.done ? "It is done." : "Nothing known holds it up."}</p>
         : got.error ? <p className="note lvl-error">{got.error.message}</p> : <Loading />}
@@ -247,21 +250,14 @@ function ItemWhyFrame({ def, every, refreshKey, tools }: FrameProps) {
   );
 }
 
-function ItemChangesFrame({ def, every, refreshKey, tools }: FrameProps) {
-  const bound = typeof def.onParams === "function";       // the page's fold: asked for only when opened
-  const open = !bound || def.history != null;
-  const of = def.history && def.history !== "all" ? String(def.history) : "";
-  const got = useItem(def, every, refreshKey, open ? of || "all" : undefined);
-  const total = (d: any) => `${Object.values<number>(d.changes || {}).reduce((a, b) => a + b, 0)} changes`;
+/** Its history: each event, newest first, with the move and the field changes it made (its fields' changes asked for:
+ *  `history=all`, the page's answer when it has asked the same). */
+function ItemHistoryFrame({ def, every, refreshKey, tools }: FrameProps) {
+  const got = usePanelAnswer<any>(pathOf("items", def.item), { ...(def.projection ? { projection: def.projection } : {}), history: "all" },
+    every, refreshKey, (d: any) => !!d?.history);
   return (
-    <ItemPart def={def} title="Changes" note={total} tools={tools} got={got}>
-      {(d) => bound ? (
-        <details className="history changes" id="changes" open={open}
-          onToggle={(ev) => { const o = (ev.target as HTMLDetailsElement).open; if (o !== open) def.onParams({ history: o ? "all" : null }); }}>
-          <summary>Each field's changes, the latest {CHANGES_SHOWN} of each</summary>
-          {open && <ItemChanges d={d} of={of} all={() => def.onParams({ history: "all" })} />}
-        </details>
-      ) : <ItemChanges d={d} of={of} />}
+    <ItemPart def={def} title="History" note={(d) => `${d.events} events, newest first`} tools={tools} got={got}>
+      {(d) => <ItemHistory d={d} />}
     </ItemPart>
   );
 }
@@ -290,6 +286,10 @@ function ItemStateTimelineFrame({ def, every, refreshKey, tools }: FrameProps) {
   );
 }
 
+/** Each declared field's unit, where the projection gives one. */
+const unitsOf = (d: any): Record<string, string> => Object.fromEntries(Object.entries<any>(d?.projection_of?.fields || {})
+  .filter(([, x]) => x && typeof x.unit === "string").map(([f, x]) => [f, x.unit]));
+
 /** Its numeric fields over time: `field`'s, else each declared numeric (or a number) that changed at least twice. */
 function ItemFieldChartFrame({ def, every, refreshKey, tools }: FrameProps) {
   const got = useItem(def, every, refreshKey);
@@ -302,23 +302,28 @@ function ItemFieldChartFrame({ def, every, refreshKey, tools }: FrameProps) {
   return (
     <ItemPart def={def} title={field ? `${field} over time` : "Its numbers over time"} tools={tools} got={state}
       nothing={() => !series.length}>
-      {() => (series.length ? <FieldCharts series={series} />
+      {() => (series.length ? <FieldCharts series={series} units={unitsOf(got.data)} />
         : <p className="muted">{field ? `${field} has not changed to two numbers.` : "No numeric field has changed twice."}</p>)}
     </ItemPart>
   );
 }
 
 const ItemSummaryFrame = part("Summary", (d) => <ItemSummary d={d} />);
-const ItemPathFrame = part("Where it went", (d) => <ItemPath d={d} />, (d) => !hasPath(d) && !d.eta?.why);
 const ItemRelationsFrame = part("Relations", (d) => <ItemRelations d={d} />, (d) => !hasRelations(d));
-const ItemFieldsFrame = part("Fields", (d, def) => (
-  <ItemFields d={d} onChanges={typeof def.onParams === "function" ? (f) => def.onParams({ history: f }) : undefined} />));
+const ItemFieldsFrame = part("Fields", (d) => <ItemFields d={d} />);
 const ItemRefusedFrame = part("Refused", (d) => <ItemRefused d={d} />, (d) => !d.refused?.length);
-const ItemMovesFrame = part("How it moved", (d) => <ItemMoves d={d} />);
-const ItemEventsFrame = part("Events", (d) => <ItemEvents d={d} />, undefined, (d) => `${d.events} on the record`);
-const ItemEventsHistogramFrame = part("Its events over time",
-  (d) => (eventBuckets(d) ? <EventsHistogram b={eventBuckets(d)} /> : <p className="muted">No events.</p>),
-  (d) => !eventBuckets(d), (d) => (d.record?.length < d.record_total ? `the latest ${d.record.length} of ${d.record_total}` : ""));
+
+/** Its events per time bucket, by kind: its title says the bucket's size ("Its events per 10 minutes, by kind"). */
+function ItemEventsHistogramFrame({ def, every, refreshKey, tools }: FrameProps) {
+  const got = useItem(def, every, refreshKey);
+  const b = eventBuckets(got.data);
+  return (
+    <ItemPart def={def} title={b ? `Its events per ${bucketWords(b.size)}, by kind` : "Its events over time"} tools={tools} got={got}
+      nothing={() => !b} note={(d) => (d.record?.length < d.record_total ? `the latest ${d.record.length} of ${d.record_total}` : "")}>
+      {() => (b ? <EventsHistogram b={b} /> : <p className="muted">No events.</p>)}
+    </ItemPart>
+  );
+}
 
 export const ITEMS: Record<string, PanelKind> = {
   projections: { label: "Projections, by system", Frame: ProjectionsFrame },
@@ -331,13 +336,10 @@ export const ITEMS: Record<string, PanelKind> = {
   "item-list": { label: "A projection's items, a page at a time", needs: "projection", Frame: ItemListFrame },
   "item-summary": { label: "An item: its projection, state and age", needs: "item", Frame: ItemSummaryFrame },
   "item-why": { label: "An item: why it is not done", needs: "item", Frame: ItemWhyFrame },
-  "item-path": { label: "An item: where it went", needs: "item", Frame: ItemPathFrame },
   "item-relations": { label: "An item: its relations", needs: "item", Frame: ItemRelationsFrame },
   "item-fields": { label: "An item: its fields", needs: "item", Frame: ItemFieldsFrame },
   "item-refused": { label: "An item: its refused events", needs: "item", Frame: ItemRefusedFrame },
-  "item-moves": { label: "An item: how it moved", needs: "item", Frame: ItemMovesFrame },
-  "item-events": { label: "An item: its events", needs: "item", Frame: ItemEventsFrame },
-  "item-changes": { label: "An item: each field's changes", needs: "item", Frame: ItemChangesFrame },
+  "item-history": { label: "An item: its history, each event with what it changed", needs: "item", Frame: ItemHistoryFrame },
   "item-state-timeline": { label: "An item: its states over time", needs: "item", Frame: ItemStateTimelineFrame },
   "item-field-chart": { label: "An item: its numeric fields over time", needs: "item", Frame: ItemFieldChartFrame },
   "item-events-histogram": { label: "An item: its events over time, by kind", needs: "item", Frame: ItemEventsHistogramFrame },

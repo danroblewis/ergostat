@@ -51,15 +51,46 @@ button.jv-val:hover, button.jv-val.on { border-color: var(--accent); background:
 
 /* one item's history as charts (components/charts/ItemCharts.tsx): its states as a band, its numbers, its events */
 .item-timeline-band { position: relative; height: 1.4rem; background: var(--fill); border-radius: var(--radius); overflow: hidden; }
-.item-timeline-span { position: absolute; top: 0; bottom: 0; }
+.item-timeline-span { position: absolute; top: 0; bottom: 0; cursor: pointer; }
+.item-timeline-span:hover, .item-timeline-span.on { box-shadow: inset 0 0 0 2px var(--ink); }
+.item-timeline-said { margin: 0 0 var(--sp-2); }
 .item-timeline-axis { display: flex; justify-content: space-between; gap: var(--sp-2); margin: var(--sp-0) 0 var(--sp-2); }
 .item-timeline-spent { border-collapse: collapse; font-size: var(--text-sm); }
 .item-timeline-spent th { text-align: left; font-weight: normal; padding: 0 var(--sp-3) 0 0; }
 .item-timeline-spent td { padding: 0 var(--sp-2); }
 .item-swatch { display: inline-block; width: 0.7em; height: 0.7em; border-radius: var(--radius); margin-right: var(--sp-1); }
-.item-field-charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: var(--sp-3); }
+.item-field-charts { display: grid; grid-template-columns: 1fr; gap: var(--sp-3); }
 .item-field-chart { margin: 0; min-width: 0; }
 .item-field-chart figcaption { font-size: var(--text-sm); margin-bottom: var(--sp-1); }
+.item-histogram-plot { position: relative; }
+.item-histogram-hit { fill: transparent; }
+.item-histogram-hit.on { fill: var(--ink); fill-opacity: 0.08; }
+.item-histogram-tip { top: var(--sp-1); white-space: nowrap; }
 .item-histogram svg { display: block; width: 100%; height: 7.5rem; background: var(--fill); border-radius: var(--radius); }
 .item-histogram-kinds { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3);
   font-size: var(--text-sm); }
+
+/* one item's history (components/itemParts.tsx ItemHistory): each event, newest first, with what it changed */
+.item-history { list-style: none; margin: 0; padding: 0; }
+.history-entry { padding: var(--sp-1) 0; border-bottom: var(--hair) solid var(--line); }
+.history-entry:target { background: var(--fill); }
+.history-entry.quiet .history-head { color: var(--muted); }
+.history-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sp-1); }
+.history-when { font-variant-numeric: tabular-nums; font-size: var(--text-sm); color: var(--muted); }
+.history-move .stbox { border: var(--hair) solid var(--line); }
+.history-move .stbox.on { color: var(--ink); font-weight: 600; }
+.history-changes { margin: var(--sp-0) 0 0; padding-left: var(--sp-4); font-size: var(--text-sm); }
+.history-field { font-weight: 600; }
+.history-before { color: var(--muted); }
+.history-raw summary { cursor: pointer; }
+.history-raw pre { max-height: 20rem; overflow: auto; }
+.field-map { display: grid; gap: 0; margin: 0; font-size: var(--text-sm); }
+.field-map-row { display: grid; grid-template-columns: minmax(6rem, max-content) 1fr; gap: var(--sp-3); }
+.field-map dt { color: var(--muted); }
+.field-map dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.field-list { margin: 0; padding-left: var(--sp-4); }
+.bookkeeping { margin-top: var(--sp-3); }
+.bookkeeping > summary { cursor: pointer; color: var(--muted); }
+.item-belongs { margin: 0 0 var(--sp-2); }
+.why-line { margin: 0; }
+.why-more summary { cursor: pointer; color: var(--muted); font-size: var(--text-sm); }

@@ -61,13 +61,9 @@ export const ITEM_PANELS: PanelDef[] = [
   { panel: "item-state-timeline", id: "state-timeline", quiet: true },
   { panel: "item-field-chart", id: "numbers", quiet: true },
   { panel: "item-events-histogram", id: "events-over-time", quiet: true },
-  { panel: "item-path", id: "path", quiet: true },
   { panel: "item-relations", id: "relations", quiet: true },
   { panel: "item-fields", id: "fields" },
-  { panel: "item-refused", id: "refused", quiet: true },
-  { panel: "item-moves", id: "moves" },
-  { panel: "item-events", id: "events" },
-  { panel: "item-changes", id: "changes" },
+  { panel: "item-history", id: "history" },
 ].map((d) => full({ ...d, item: "$item" }));
 
 /** A projection's page: what it is (its name, count, description, system), its graph of states, its state now, its

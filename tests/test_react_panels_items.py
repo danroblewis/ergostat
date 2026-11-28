@@ -21,7 +21,7 @@ pytestmark = pytest.mark.skipif(not __import__("ergostat.web.server", fromlist=[
     "app", "index.html").is_file(), reason="the React page is not built")
 
 KINDS = ("projections", "items-by-projection", "projection-summary", "projection-states", "projection-now", "projection-model", "projection-definition", "item-list", "item-summary", "item-why",
-         "item-path", "item-relations", "item-fields", "item-refused", "item-moves", "item-events", "item-changes")
+         "item-relations", "item-fields", "item-refused", "item-history")
 BOARD = """
 dashboards:
   tickets:
@@ -37,13 +37,10 @@ dashboards:
       - {panel: item-list, projection: ticket, n: 25, size: full}
       - {panel: item-summary, item: ticket/1}
       - {panel: item-why, item: ticket/1}
-      - {panel: item-path, item: ticket/1}
       - {panel: item-relations, item: ticket/1}
       - {panel: item-fields, item: ticket/1}
       - {panel: item-refused, item: ticket/1}
-      - {panel: item-moves, item: ticket/1}
-      - {panel: item-events, item: ticket/1}
-      - {panel: item-changes, item: ticket/1, history: all}
+      - {panel: item-history, item: ticket/1}
 """
 COUNTED = {"stocks:\n": "stocks:\n  open-tickets:\n    sensor: {projection: ticket, state: [opened, working]}\n",
            "goals:\n": "goals:\n  few-tickets: {stock: open-tickets, hold: \"< 10\"}\n",   # a stock that counts tickets
@@ -78,11 +75,10 @@ def test_every_items_kind_draws_on_a_declared_dashboard(browser, board):
         pg.locator(f".panel.panel-kind-{kind}").first.wait_for(timeout=WAIT)
     pg.locator(".panel-kind-projections .projection-card[data-projection=ticket]").wait_for(timeout=WAIT)
     pg.locator(".panel-kind-item-list table tbody tr").first.wait_for(timeout=WAIT)
-    pg.locator(".panel-kind-item-events table tbody tr").first.wait_for(timeout=WAIT)
-    pg.locator(".panel-kind-item-path .track .stbox.on").wait_for(timeout=WAIT)
+    pg.locator(".panel-kind-item-history .history-entry").first.wait_for(timeout=WAIT)
     pg.locator(".panel-kind-projection-definition pre, .panel-kind-projection-definition code").first.wait_for(timeout=WAIT)
-    pg.locator(".panel-kind-item-changes table.history tbody tr").first.wait_for(timeout=WAIT)
-    pg.locator(".panel-kind-item-why .why").wait_for(timeout=WAIT)                     # ticket/1 is working
+    pg.locator(".panel-kind-item-history .history-move").first.wait_for(timeout=WAIT)
+    pg.locator(".panel-kind-item-why .why, .panel-kind-item-why p.muted").first.wait_for(timeout=WAIT)   # ticket/1 is working
     assert "Nothing is recorded" not in pg.locator("#main").inner_text()
     assert settled(pg, 2500) == []
     pg.close()
@@ -153,19 +149,27 @@ def test_the_projection_page_draws_its_panels_and_keeps_its_filters_in_the_addre
     pg.close()
 
 
-def test_the_item_page_draws_its_parts_and_opens_its_changes(browser, board):
+def test_the_item_page_draws_its_parts_and_its_one_history(browser, board):
     pg = opened(browser, f"{board}/ticket/1")
     assert heading(pg) == ITEM
-    for kind in ("item-summary", "item-path", "item-fields", "item-moves", "item-events", "item-changes"):
+    for kind in ("item-summary", "item-fields", "item-history"):
         pg.locator(f".panel-kind-{kind}").wait_for(timeout=WAIT)
     pg.wait_for_function("() => document.querySelector('#main')?.innerText.includes('working')", timeout=WAIT)
     assert pg.locator(".panel-kind-item-refused").count() == 0                     # nothing refused: not drawn
     assert pg.locator(".panel-kind-item-relations").count() == 0                   # no relations: not drawn
-    assert pg.locator(".panel-kind-item-path a", has_text="what every ticket touches").get_attribute("href") == \
-        "/diagrams?projection=ticket"
-    assert pg.locator(".panel-kind-item-changes table.history").count() == 0       # folded: not asked for
-    pg.locator("#changes > summary").click()
-    pg.locator(".panel-kind-item-changes table.history tbody tr").first.wait_for(timeout=WAIT)
+    went = pg.locator(".panel-kind-item-summary .went a")                          # its path on the two diagrams, no more
+    assert went.count() == 2 and "item=ticket" in (went.first.get_attribute("href") or "")
+    # one history: no separate moves, events or changes; each entry its event, with the move and the fields it changed
+    for gone in ("item-path", "item-moves", "item-events", "item-changes"):
+        assert pg.locator(f".panel-kind-{gone}").count() == 0, gone
+    entries = pg.locator(".panel-kind-item-history .history-entry")
+    entries.first.wait_for(timeout=WAIT)
+    pg.locator(".panel-kind-item-history .history-move[data-to=working]").wait_for(timeout=WAIT)
+    pg.locator(".panel-kind-item-history .history-change[data-field=title]").first.wait_for(timeout=WAIT)
+    first = entries.last                                            # the oldest: it arrived, and its title was set
+    assert first.locator(".history-move").get_attribute("data-from") == ""
+    first.locator(".history-raw > summary").click()
+    assert '"id"' in first.locator(".history-raw pre").first.inner_text()
     assert settled(pg) == []
     pg.close()
     pg = opened(browser, f"{board}/ticket/nope")

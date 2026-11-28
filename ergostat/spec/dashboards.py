@@ -63,8 +63,7 @@ NEEDS_AGENTS: dict[str, str] = {k: "agent" for k in ("agent-what", "agent-defini
 
 # ---- the items group's kinds of panel (ergostat/web/ui/src/components/panels/kinds/items.tsx): KIND → its parameters
 _ITEM = {"item"}                      # one item, by its id (any id: it need not be recorded yet)
-_ONE_ITEM = ("item-summary", "item-why", "item-path", "item-relations", "item-fields", "item-refused", "item-moves",
-             "item-events", "item-changes")
+_ONE_ITEM = ("item-summary", "item-why", "item-relations", "item-fields", "item-refused", "item-history")
 KINDS.update({
     "projections": {"states", "system"},                  # GET /api/items-overview: each projection, a card each (a
     #                                                       system's: those it contains)
@@ -77,8 +76,9 @@ KINDS.update({
     "projection-states": {"projection", "counts"},        # GET /api/items: its graph of states, the moves its items
     #                                                       made (counts: false, the chips and arrows without numbers)
     "item-list": {"projection", "state", "q", "sort", "finished", "n"},   # GET /api/items: one projection's, paged
-    **{k: _ITEM for k in _ONE_ITEM},                      # GET /api/items/ITEM (item-why: GET /api/why?item=ITEM)
-    "item-changes": _ITEM | {"history"},                  # GET /api/items/ITEM?history=FIELD|all: each field's changes
+    **{k: _ITEM for k in _ONE_ITEM},                      # GET /api/items/ITEM (item-why: GET /api/why?item=ITEM;
+    #                                                       item-history: ?history=all, its events newest first, each
+    #                                                       with the move and the field changes it made)
     "item-state-timeline": _ITEM,                         # GET /api/items/ITEM: its states over time, a band
     "item-field-chart": _ITEM | {"field"},                # GET /api/items/ITEM?history=all: a numeric field's values
     #                                                       over time (field: that one; else each that changed twice)
@@ -119,7 +119,6 @@ CHECKS_ITEMS = {
     "item-list": {"state": _text, "q": _text, "sort": _text, "finished": _one_of("hide", "waits", "show")},
     "projection-states": {"counts": _flag},
     **{k: {"item": _text} for k in _ONE_ITEM},
-    "item-changes": {"item": _text, "history": _text},
     "item-state-timeline": {"item": _text},
     "item-field-chart": {"item": _text, "field": _text},
     "item-events-histogram": {"item": _text},

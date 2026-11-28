@@ -727,13 +727,10 @@
             "item-list",
             "item-summary",
             "item-why",
-            "item-path",
             "item-relations",
             "item-fields",
             "item-refused",
-            "item-moves",
-            "item-events",
-            "item-changes",
+            "item-history",
             "item-state-timeline",
             "item-field-chart",
             "item-events-histogram",
@@ -1044,10 +1041,6 @@
           "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "quiet", "size", "title"]}}
         },
         {
-          "if": {"properties": {"panel": {"const": "item-path"}}},
-          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "quiet", "size", "title"]}}
-        },
-        {
           "if": {"properties": {"panel": {"const": "item-relations"}}},
           "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "quiet", "size", "title"]}}
         },
@@ -1060,19 +1053,8 @@
           "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "quiet", "size", "title"]}}
         },
         {
-          "if": {"properties": {"panel": {"const": "item-moves"}}},
+          "if": {"properties": {"panel": {"const": "item-history"}}},
           "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "quiet", "size", "title"]}}
-        },
-        {
-          "if": {"properties": {"panel": {"const": "item-events"}}},
-          "then": {"required": ["item"], "propertyNames": {"enum": ["panel", "fit", "item", "note", "quiet", "size", "title"]}}
-        },
-        {
-          "if": {"properties": {"panel": {"const": "item-changes"}}},
-          "then": {
-            "required": ["item"],
-            "propertyNames": {"enum": ["panel", "fit", "history", "item", "note", "quiet", "size", "title"]}
-          }
         },
         {
           "if": {"properties": {"panel": {"const": "item-state-timeline"}}},

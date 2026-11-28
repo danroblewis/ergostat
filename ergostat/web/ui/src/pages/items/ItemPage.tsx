@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { AppLink, Page } from "../../components";
 import { EditableDashboard, useEditing } from "../../components/panels/EditableDashboard";
 import { SharedAnswers } from "../../components/panels/shared";
@@ -7,10 +6,11 @@ import { ITEM_PANELS as PANELS } from "../../lib/pages";
 import { dashboardHref, eventsHref, itemHref } from "../../lib/hrefs";
 import { knownProjections } from "../../lib/routes";
 
-/* /item/ID, a dashboard made in advance (pages.js pageItem): its panels are why it is not done, its projection, state, age
-   and events; the path it took through its states; its relations both ways; its fields; what was refused; how it
-   moved; its events; and each field's changes, asked for when the Changes fold is opened (or a field's "N changes").
-   The page asks the item's answer once and hands it to every panel; a part with nothing to say is not drawn. Under a
+/* /item/ID, a dashboard made in advance (lib/pages.ts ITEM_PANELS): its panels are why it is not done (a line, while
+   something known holds it), its projection, state, age and what it belongs to; its states over time; its numbers over
+   time; its events over time; its relations both ways; its fields; and its history (each event with what it changed).
+   The page asks the item's answer once, its fields' changes with it, and hands it to every panel; a part with nothing
+   to say is not drawn. Under a
    projection's address, edited in place, it is saved as the projection's show dashboard (`dashboards: show:`), drawn
    for each of its items in place of this one. */
 
@@ -18,17 +18,10 @@ const BASE = { title: "", panels: PANELS };
 
 
 export default function ItemPage({ id, projection }: { id: string; projection?: string }) {
-  const [changesOf, setChangesOf] = useState<string | null>(null);   // null: Changes folded; "": every field's
-  const asked = { ...(projection ? { projection } : {}), ...(changesOf != null ? { history: changesOf || "all" } : {}) };
+  const asked = { ...(projection ? { projection } : {}), history: "all" };   // (its history's changes, and its charts')
   const item = usePanelApi<any>(`items/${encodeURIComponent(id)}`, asked, 4000);
-  const onParams = (c: Record<string, string | number | null>) => {
-    if (!("history" in c)) return;
-    setChangesOf(c.history == null ? null : c.history === "all" ? "" : String(c.history));
-  };
   const ed = useEditing({ base: BASE, target: projection ? { projection, role: "show" } : null,
     bind: { item: id, ...(projection ? { projection } : {}) } });
-  const decorate = (d: any) => ({ ...d, onParams,
-    ...(d.panel === "item-changes" ? { history: changesOf == null ? undefined : changesOf || "all" } : {}) });
   return (
     <Page title={item.data?.name || id}>
       {item.data?.name && <p className="muted small item-key" data-testid="item-key">{id}</p>}
@@ -41,7 +34,7 @@ export default function ItemPage({ id, projection }: { id: string; projection?: 
           {item.data && !projection && (item.data.projections || []).length > 1 && <SeenBy id={id} d={item.data} />}
           {item.data?.fields?.drafted && typeof item.data.fields.drafted === "object" && <Drafted id={id} drafted={item.data.fields.drafted} />}
           {item.data?.projection === UNEXPLAINED && <Unexplained f={item.data.fields || {}} />}
-          <EditableDashboard ed={ed} decorate={decorate} />
+          <EditableDashboard ed={ed} />
         </SharedAnswers>
       )}
     </Page>

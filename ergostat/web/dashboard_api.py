@@ -40,9 +40,9 @@ PATHS.update({"projections": "items-overview", "items-by-projection": "items", "
               "projection-model": "projections/{projection}", "projection-definition": "projections/{projection}",
               "projection-summary": "items", "projection-states": "items",
               "item-list": "items", "item-why": "why", "item-summary": "items/{item}",
-              "item-path": "items/{item}", "item-relations": "items/{item}", "item-fields": "items/{item}",
-              "item-refused": "items/{item}", "item-moves": "items/{item}", "item-events": "items/{item}",
-              "item-changes": "items/{item}", "item-state-timeline": "items/{item}", "item-field-chart": "items/{item}",
+              "item-relations": "items/{item}", "item-fields": "items/{item}",
+              "item-refused": "items/{item}", "item-history": "items/{item}",
+              "item-state-timeline": "items/{item}", "item-field-chart": "items/{item}",
               "item-events-histogram": "items/{item}"})   # items
 PATHS.update({"events": "events", "goal-crossings": "loops/{goal}", "goal-decisions": "loops/{goal}"})   # record
 PATHS.update({"attention": "status", "feedback-loops": "graph", "control-loops": "graph", "quiet-systems": "systems",
@@ -52,6 +52,7 @@ PATHS.update({"attention": "status", "feedback-loops": "graph", "control-loops":
 SCOPED_HERE = ("goals", "agents", "ladder", "chart", "projections", "attention")
 FIXED = {"feedback-loops": {"view": ["dynamics"]}, "control-loops": {"view": ["blocks"]},
          "item-field-chart": {"history": ["all"]},     # (its fields' changes: what it charts)
+         "item-history": {"history": ["all"]},         # (its fields' changes: each beside the event that made it)
          **{k: {"n": ["1"], "shown": ["1"]} for k in ("projection-summary", "projection-states")}}   # (its frame alone)
 
 

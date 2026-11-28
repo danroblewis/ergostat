@@ -2094,12 +2094,12 @@ from these same panels, so a section seen on one page can be put on any dashboar
 | `projection-summary` | `GET /api/items`: what a projection is: its name (a built-in's plain title, its name small), id pattern, how many items (and how many not finished, for one with finishing states: the Inbox's, those waiting), its description, and the system it is in as a link to that system | `projection` (needed) |
 | `projection-states` | `GET /api/items`: a projection's graph of states (section 5a, *The projection's page*): each state's count now, the moves its items made with how many times, the arrivals, the moves back, a state not reached yet faded in its place, its ends boxed double (said on hover). On the projection's own page a state chosen filters its list there (`state=`); anywhere else it leads to that list in that state | `projection` (needed), `counts` (`false`: the chips and arrows without their numbers) |
 | `item-list` | `GET /api/items`: one projection's items, paged, searched and sorted by the server; `ergostat.inbox`'s waiting items each drawn as its card, answered in place (section 12o), above the rest | `projection` (needed), `state` (one of its states), `q`, `sort` (`FIELD` or `-FIELD`), `finished`, `n` |
-| `item-summary`, `item-path`, `item-relations`, `item-fields`, `item-refused`, `item-moves`, `item-events` | `GET /api/items/ITEM`: one part of an item | `item` (needed: any id) |
-| `item-why` | `GET /api/why`: why it is not done (as the record is now) | `item` (needed) |
-| `item-changes` | `GET /api/items/ITEM?history=`: each field's changes | `item` (needed), `history` (a field, or `all`) |
-| `item-state-timeline` | `GET /api/items/ITEM`: its states over time as one band (each value a colour, each span from entered to left; from its moves, else its `state` field's changes), and the time spent in each | `item` (needed) |
-| `item-field-chart` | `GET /api/items/ITEM?history=all`: a small line chart of a numeric field's value at each change | `item` (needed), `field` (that field; left out, each `number`, `integer` or `duration` field, or one that is a number, that changed at least twice) |
-| `item-events-histogram` | `GET /api/items/ITEM`: its events (the latest 500) per time bucket, stacked by kind of event (the projection's kind that took it, else its type) | `item` (needed) |
+| `item-summary`, `item-relations`, `item-fields`, `item-refused` | `GET /api/items/ITEM`: one part of an item (its summary: what it belongs to, its projection, state, expected done, events, and its path in System dynamics and in Blocks; its fields: nested maps as rows, lists as lists, an id of an item a link to its page, a built-in's bookkeeping folded apart) | `item` (needed: any id) |
+| `item-why` | `GET /api/why`: why it is not done (as the record is now), in a line: what holds it and who is to act; the whole answer behind *why*. Never asked for an item of ergostat's built-in projections | `item` (needed) |
+| `item-history` | `GET /api/items/ITEM?history=all`: its history, one list, newest first, a page at a time: each event (when, its kind, who wrote it) with the move it made (from → to) and each field it changed (old → new); one that changed nothing says so, a run of them one entry; the event whole when opened | `item` (needed) |
+| `item-state-timeline` | `GET /api/items/ITEM`: its states over time as one band (each value a colour, each span from entered to left; from its moves, else its `state` field's changes), and the time spent in each; a span hovered (or clicked) says the event that moved it there and why | `item` (needed) |
+| `item-field-chart` | `GET /api/items/ITEM?history=all`: a line chart of a numeric field's value at each change, as wide as the panel, titled by the field (and its unit) | `item` (needed), `field` (that field; left out, each `number`, `integer` or `duration` field, or one that is a number, that changed at least twice; never a time) |
+| `item-events-histogram` | `GET /api/items/ITEM`: its events (the latest 500) per time bucket (a round size, said in its title: *Its events per 10 minutes, by kind*), stacked by kind of event (the projection's kind that took it, else its type); a bucket hovered says its time span and its count of each kind | `item` (needed) |
 | `events` | `GET /api/events`: the record's events, newest first; with `remote`, that remote's, read there (section 4c) | `match` (a type as a glob, an item or a source), `query` (the event query: words a full-text search, else an expression; `unexplained()`; section 5a, *The Events dashboard's query*), `item`, `about` (a goal), `machine`, `runs`, `window`, `from`, `to` (seconds since 1970), `n` (1 to 500), `remote` (a remote of the model's), `system` (the events behind what it contains: those about an item of a projection it contains, or from one of its blocks or agents) |
 | `goal-crossings`, `goal-decisions` | `GET /api/loops/GOAL`: its crossings, each a link to the Events; its controller's decisions, alike when only their numbers differ | `goal` (needed) |
 | `attention` | `GET /api/status`: what asks for the owner | `show` (any of `waiting`, `off`, `housekeeping`, `suggestions`; all when left out), `system` (what is about a goal, agent or item it contains) |
@@ -2825,13 +2825,12 @@ median or a percentile is not a fold rule: ask the items' numbers (SQL) or the m
 the operation (with its rule, or `patch` or `set`), the path, and the value before and after. A
 change deeper in a field (`/comments/3`) is that field's. The item's `fields` is the folded
 document as it stands, so whatever reads fields reads them as before; its history is beside it
-(`ergostat item ID --history [FIELD]`; the item's page, in one collapsed *Changes* section at
-its end, each field's changes latest first, each linked to its event; a field with more than one
-change shows `N changes` beside its name, which opens the section narrowed to that field; a
-snapshot does not hold the changes and says so). `/api/items/ID` always sends how many changes
+(`ergostat item ID --history [FIELD]`; the item's page, in its one *History*: each event newest
+first, with the move it made and each field it changed, old → new; a snapshot does not hold the
+changes and says so). `/api/items/ID` always sends how many changes
 each field had (`changes`) and sends `history` only when asked: `history=FIELD` that field's
-changes, `history=all` every field's (a field named `all` is read with `all`); the page asks only
-while the section is open. Its `file_sizes` gives the size of each file a field names (not one in
+changes, `history=all` every field's (a field named `all` is read with `all`); the item's page
+asks `history=all`. Its `file_sizes` gives the size of each file a field names (not one in
 the state folder). On the page, a short field (a number, a boolean, a string of 60 characters or
 fewer, not `file:`) sits in a flowing grid, its name above its value; every other field is a
 full-width block headed by its name. A list of records is a list of cards, newest first, three
@@ -2987,7 +2986,9 @@ no depth at all is 1; the API reads an empty `depth=` as none).
 **Why it is not done.** `ergostat why ID [--json]`, `GET /api/why?item=ID` and MCP's `why` answer one question for
 any item, as the record is now (`--at`, `at=` are refused), from the item index and the model only (`ergostat/why/`;
 nothing in it names a projection, state or block of any model). The item's page shows it first, as *Why isn't this done?*,
-while the item is unfinished. The answer:
+while the item is unfinished and a cause is known: one line (what holds it, and who is to act, with the command), the
+paragraph and its evidence behind *why*; never for an item of ergostat's built-in projections (`ergostat.*`, its own
+bookkeeping), and never a link back to the page it is on. The answer:
 
 - **now**: its state, since when and for how long, against the stays its projection's latest 2,000 items made in that state:
   longer than which share of them, and *unusual* past nine in ten; with fewer than 5 stays it says so and calls
@@ -3985,7 +3986,9 @@ capped: 10 groups, 2 samples, 30 fields, 8 top values, 10 histogram buckets, 20 
   review of a draft that checks is fixed: its banner says *✓ fixed* and the kinds return to their usual samples.
   A new projection opens on all five; one that exists on its review, so what drifted shows.
 
-**Where it went, on the item's page.** Right after its header, an item of a projection the model counts or takes shows its
+**Where it went.** (The item's page draws where it went as its states over time, a band, and each move in its
+*History*, with the event that made it; its summary links its path on the two diagrams. What follows is the item's
+`path` as the API gives it, and as the diagrams draw it.) An item of a projection the model counts or takes has its
 `path` the stock-and-flow way, in move order, wrapping on a narrow screen: each step boxed, named by the stock that
 counts it (its state beside it when the names differ, else the state alone, its `says` as the title) and how long it
 stayed; between steps the valve (the flow that counted it into the next) and the block that moved it: the step's
