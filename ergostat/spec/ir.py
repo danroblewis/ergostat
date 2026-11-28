@@ -107,6 +107,8 @@ MODEL_CHANGE_STATES = ["made", "checked", "testing", "passed", "accepted", "refu
 JUDGE_PORTS = ("testing", "passed", "failed", "accepted", "inconclusive")
 MODELLING_REQUEST = "ergostat.modelling-request"   # the built-in projection: work for modelling, raised from what check finds
 MODELLING_REQUEST_STATES = ["open", "proposed", "held", "answered", "dismissed"]
+UNEXPLAINED = "ergostat.unexplained"   # the built-in projection: each group of events no projection takes (SPEC §12e)
+UNEXPLAINED_STATES = ["unexplained", "judging", "reviewing", "sent-back", "waiting", "explained", "held", "ignored"]
 CLAIM = "ergostat.claim"          # the built-in projection: what a block said it did, checked against the record (SPEC §12g)
 CLAIM_STATES = ["made", "verified", "contradicted", "unchecked"]
 CLAIM_CHECKS = ("tests", "changed", "state", "exit", "level")   # the built-in checks; a project's claims: adds more
@@ -376,6 +378,20 @@ def modelling_request_kind() -> ItemKind:
                     ["code", "about", "source", "tier", "change"], {}, None,
                     "work for the modelling subsystem: a finding, a chain finding, a coherence mismatch or a craft note "
                     "check reports, held until it is answered (built in, SPEC §12e)")
+
+
+def unexplained_kind() -> ItemKind:
+    """A group of the events no projection takes (``numbers/unexplained.py``): by source and type (and shape), its
+    count now, first and last, a few example ids, and its progress toward a projection that takes it: unexplained,
+    judging, reviewing, sent-back (``round``), waiting (for the owner), explained, held (``why``) or ignored. The one
+    thing the owner watches: each attempt an event of its own. Written by the tally's sync on a change alone."""
+    on = {f"{UNEXPLAINED}.{s}": s for s in UNEXPLAINED_STATES}
+    return ItemKind(UNEXPLAINED, f"{UNEXPLAINED}/*", list(UNEXPLAINED_STATES), on,
+                    ["source", "type", "count", "round", "latest"], {}, None,
+                    "a group of events no projection takes, by source and type: its count, its examples, and its "
+                    "progress toward a projection that takes it: a draft with the judge, the reviewer or the owner, "
+                    "sent back, held, ignored or explained (built in, under use: modelling, SPEC §12e)",
+                    sealed=True, finished=["explained", "ignored"])
 
 
 def model_change_kind() -> ItemKind:
@@ -707,6 +723,8 @@ class Stock:
     inferred: str | None = None        # added by ergostat: the model change that added it (ergostat.model-change/<id>), or "true"
     where: Where | None = None
     observe: bool = False              # estimated between readings, its staleness watched (SPEC §9.6)
+    items: dict | None = None          # ``items: {projection, state}``: the items it holds, when its sensor is not a
+    #                                    projection's count (the unexplained events: a program counts, a projection lists)
 
 
 @dataclass

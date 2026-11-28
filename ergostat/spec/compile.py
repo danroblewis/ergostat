@@ -78,7 +78,8 @@ CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its 
 ITEM_KEYS = COMMON | {"query", "key", "name", "time", "ignore", "defaults", "fields", "events", "show", "formats", "lease", "relations", "join", "about", "final",
                       "finished", "lost", "moves-from", "if-unchanged", "attention", "pipeline", "risk-score", "group", "emit",
                       "dashboards"}
-STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
+STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly",
+                           "items"}
 LINK_KEYS = {"cause", "instant", "description", "inferred"}   # a driven-by written out: the cause, and what is said of the link
 FLOW_KEYS = COMMON | {"from", "to", "unit", "rate", "sensors", "sensor", "driven-by", "two-way", "equation", "inferred", "formerly",
                       "rate-unit"}
@@ -638,6 +639,29 @@ class Compiler:
                                     daemon=s.get("daemon"), push=s.get("push") is True, journal=journal,
                                     run_in=runs.OWNER if measure else runs.verdict(self.doc.uses, s.where, of, str(name)))
         return out
+
+    def stock_items(self, m: Map, what: str, spec: Spec) -> dict | None:
+        """``items: {projection: K, state: [S...]}``: the items a stock holds, listed on its page, when its sensor counts
+        them some other way (a program's sum of their counts)."""
+        x = m.get("items")
+        if x is None:
+            return None
+        if not isinstance(x, dict) or not x.get("projection"):
+            self.err(f"{what}.items: a map of projection: and (optional) state:", m.at("items") or m.where, "not-a-map")
+            return None
+        k = spec.items.get(str(x["projection"]))
+        st = x.get("state")
+        states = [str(v) for v in st] if isinstance(st, list) else [str(st)] if st is not None else []
+        if k is None:
+            self.err(f"{what}.items.projection: {x['projection']!r} is not a projection", m.at("items") or m.where,
+                     "unknown-ref")
+            return None
+        bad = [v for v in states if v not in k.states]
+        if bad:
+            self.err(f"{what}.items.state: {', '.join(bad)} not a state of {k.name} ({', '.join(k.states)})",
+                     m.at("items") or m.where, "unknown-state")
+            return None
+        return {"kind": k.name, "state": states}
 
     def item_sensor(self, s: Map, of: Ref, sw: str) -> dict | None:
         """``projection: ticket`` and how to count them: on a stock, how many are in ``state:`` (or the
@@ -1515,6 +1539,9 @@ class Compiler:
             if "--verify" in settle and not (n and re.fullmatch(r"\d{1,3}", n) and VERIFY_MIN <= int(n) <= VERIFY_MAX):
                 self.err(f"use: repair: verify: {n!r} is not a whole number from {VERIFY_MIN} to {VERIFY_MAX}",
                          self.doc.defined.get(("blocks", BLOCKS[1])) or self.doc.defined[("blocks", BLOCKS[0])], "bounds")
+        if any(u.get("template") == "modelling" for u in d.uses.values()):
+            from .ir import UNEXPLAINED, unexplained_kind
+            spec.items[UNEXPLAINED] = unexplained_kind()      # built in, under use: modelling: the unexplained events' groups
         if any(u.get("template") == "interventions" for u in d.uses.values()):
             from .ir import MODEL_REQUEST, model_request_kind
             spec.items[MODEL_REQUEST] = model_request_kind()  # built in, with the interventions loop (SPEC §12p)
@@ -1535,6 +1562,7 @@ class Compiler:
             st.sensors = self.sensors(m, Ref("stock", name), what)
             st.rate_unit = self.rate_unit(m, what)
             st.formerly = self.formerly(m, what)
+            st.items = self.stock_items(m, what, spec)
             spec.stocks[name] = st
         for name, m, what in self.named("flows"):
             self.keys(m, FLOW_KEYS, what)

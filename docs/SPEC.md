@@ -2275,6 +2275,7 @@ stocks:
 | `observe` | bool | false | Estimated between readings (`stock.X.estimate`), its innovations recorded, and the goals on it watched for staleness (section 9.6) |
 | `cumulative` | bool | false | A running total that by its nature never drains (spent so far, kept so far): no outflow is missing, and `check` does not ask for one (**stock-without-outflow**) |
 | `rate-unit` | `minute`, `hour`, `day` or `week` | chosen by size | How the rates of its flows are shown, for each flow that says none (section 1a); display only, kept per hour |
+| `items` | `{projection: K, state: [S...]}` | none | The items it holds, listed in its side panel and on its page, when its sensor counts them some other way (the unexplained events: a program sums the groups' counts, section 12e); a sensor `projection:` says it already |
 | `inferred` | model-change id, or `true` | none (declared) | Added by ergostat: the model change that added it (section 12e, *Inferred and declared*) |
 | `system` | name | the file's default | The group it belongs to |
 | `description` | string | none | |
@@ -7998,6 +7999,29 @@ the goals on the stocks they make.
   (`unread`, `remainder:P`, `no-key:P`); cited as `request:ID`. Answered when none of its events is unexplained. They
   are not `unanswered-requests` (its sensor counts the requests of check, craft, coherence, fit, redesign and
   architecture): the events' loop has its own stock. The modeller never takes them.
+- **What is in the stock: the groups, as a projection.** Under `use: modelling`, the built-in projection
+  `ergostat.unexplained` (sealed: only ergostat writes it) holds one object a group, `ergostat.unexplained/GROUP`:
+  `source`, `type` (`shape` for a type that tells nothing), `label`, `count` (its unexplained events now), `first`,
+  `last`, `examples` (the newest five event ids), `request` (its request's item), `change` (the latest change citing
+  it), `title` and `drafts` (that change's title and the projections it drafts), `round` (the reviewer's round),
+  `latest` (the latest word on it, in a line: the judge's why, the reviewer's finding), `why`, and its `state`, the one
+  thing the owner watches a group become a projection by: `unexplained` (nothing in progress); `judging` (a change
+  citing it is with the judge); `reviewing` (passed, with the reviewer); `sent-back` (the reviewer sent its draft back,
+  in `round`); `waiting` (it waits for the owner, in the Inbox); `explained` (none of its events is unexplained now, its
+  count 0); `held` (its draft failed, or was written and it is still unexplained: `why`); `ignored` (by
+  `ignore-events`, or its request dismissed by the owner). The state is read from its request and the latest change
+  citing it, from the changes store, as the Goals row's stuck line reads a change (`stuck._kind_of`), so the stock's
+  list, the group's page and the Goals row say the same. (`drafting`, the drafter having it in a session, is not
+  kept: nothing cheap says it.) The tally's sync writes `ergostat.unexplained.STATE` events, each only when a group
+  moved since it was last written (its state, why, request, change, round or latest word, or its count by a tenth, as
+  a request's count is kept current), never one an event: a sync with nothing changed writes nothing, each attempt is
+  an event in the group's history, and the objects fold from the record like any projection's. The stock's value is
+  still the sensor's sum of the groups' counts (a stock's projection sensor counts objects; it does not sum a field),
+  and it declares its items, `items: {projection: ergostat.unexplained, state: [unexplained, judging, reviewing,
+  sent-back, waiting, held]}`, so its side panel and page list the groups as any projection-counted stock lists its
+  items. A group's page (the item page) links **all its events** (the Events dashboard with `q=source == 'S' and type ==
+  'T'`) and the unexplained ones (`... and unexplained()`), its request, its draft (the change, whose page has its
+  YAML), the Inbox and the workbench with the draft loaded when it waits for the owner, and shows its examples whole.
 - **Ignored, by the owner, in the model**: `with: {ignore-events: [...]}` on the modelling template, each a type glob
   (`debug.*`), `SOURCE TYPE` globs, or `{source: GLOB, type: GLOB}`. An ignored group is explained, as `ignored`, and
   raises no request. Since a `with:` is only the owner's to change (a proposal that changes it is refused), no agent

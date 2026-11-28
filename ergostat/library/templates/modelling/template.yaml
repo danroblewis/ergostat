@@ -260,6 +260,9 @@ stocks:
     if: ${ai}
     unit: events
     description: events in the record no projection takes (ergostat's own, a projection's published ones and the ignored left out)
+    items:                            # its groups, by source and type: the sensor sums their counts
+      projection: ergostat.unexplained
+      state: [unexplained, judging, reviewing, sent-back, waiting, held]
     sensor:
       run: ${lib} modelling events
       every: ${events-every}

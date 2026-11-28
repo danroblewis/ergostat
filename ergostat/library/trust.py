@@ -140,7 +140,7 @@ ITEM = {**COMMON, "query": (S, "which events it reads"), "key": (one_of(S, L), "
         "lease": (NO, "makes its items a work queue that blocks take and run")}
 STOCK = {**COMMON, **CLAIMED, **SENSORS, "unit": (S, "its unit"), "limit": (S, "its most"), "initial": (S, "its first value"),
          "cumulative": (S, "a running total"), "rate-unit": (S, "how its rate is shown"),
-         "observe": (S, "kept by the observer between readings")}
+         "observe": (S, "kept by the observer between readings"), "items": (M, "the items it holds, listed on its page")}
 FLOW = {**COMMON, **CLAIMED, **SENSORS, **DRIVEN, "from": (S, "the stock it drains"), "to": (S, "the stock it fills"),
         "unit": (S, "its unit"), "rate": (S, "its rate"), "two-way": (S, "it runs both ways"),
         "equation": (S, "its rate as arithmetic on the model's names, read by ergostat's own parser"),

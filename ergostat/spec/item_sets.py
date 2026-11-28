@@ -257,6 +257,13 @@ def _stock_set(spec, name: str):
     where), or None."""
     part = spec.stocks.get(name) or spec.auxiliaries.get(name)
     s = _items_sensor(part) if part is not None else None
+    if s is None and getattr(part, "items", None):    # its items declared (``items:``), counted some other way
+        q = part.items
+        k = spec.items.get(q["kind"])
+        if k is None:
+            return None
+        from types import SimpleNamespace
+        s = SimpleNamespace(name=next(iter(part.sensors), "its sensor"), items={"kind": q["kind"], "state": q["state"]})
     if s is None:
         return None
     k = spec.items.get(s.items["kind"])
@@ -279,6 +286,9 @@ def of_part(spec, kind: str, name: str, since: float, until: float, model=None) 
         s, k, states, where = got
         x = ItemSet(k, states=list(s.items.get("state") or []), where=where)
         how = f"counted by its sensor {s.name}: the {k} items " + (f"in {' or '.join(states)}" if s.items.get("state") else "in any state")
+        if not hasattr(s, "of"):                          # declared (``items:``): its sensor counts another way
+            how = (f"its items, as declared: the {k} items " + (f"in {' or '.join(states)}" if s.items.get("state")
+                   else "in any state") + f"; its sensor {s.name} counts what they hold")
         if s.items.get("measure") == "oldest":
             how += "; its value is the hours the oldest of them has been in its state"
         # counting every state, its set is its kind alone: its link says to list the finished too (SPEC §5a)

@@ -308,7 +308,116 @@ def sync(p, spec=None, now: float | None = None) -> dict:
             x = have.get(k)
             if x is not None and x["state"] in rq.OPEN and _changed(x.get("unexplained"), r["unexplained"]):
                 rq.event(p, k, x["state"], {"unexplained": r["unexplained"]})
+        have = rq.stored(p)
+    from ..spec.ir import UNEXPLAINED
+    if UNEXPLAINED in (spec.items or {}):
+        got = {**got, "objects": objects(p, spec, gs, have)}
     return {**got, "events": total(gs), "ignored": sum(g["count"] for g in gs if g.get("ignored")), "groups": len(found)}
+
+
+# ---- the groups as the built-in projection's objects: the one thing the owner watches a group's progress by
+
+STAGE = {"judge": "judging", "reviewer": "reviewing", "you": "waiting", "sent-back": "sent-back"}   # stuck.py's steps
+KEPT = ("state", "why", "request", "change", "round", "latest", "count", "last")
+
+
+def _line(s: str) -> str:
+    s = " ".join(str(s or "").split())
+    return s[:197] + "..." if len(s) > 200 else s
+
+
+def _latest(kind: str, c: dict) -> str:
+    """The latest word on a change, in a line: the reviewer's finding or the judge's (or check's) why; else what the
+    judge said of it, else its title."""
+    from ..stuck import _finding
+    return _line(_finding(kind, c) or (c.get("verdict") or {}).get("why") or (c.get("review") or {}).get("summary")
+                 or c.get("title") or "")
+
+
+def object_of(spec, g: dict, req: dict | None, cites: dict) -> dict:
+    """A group as the built-in projection's object (``ergostat.unexplained``): its fields, and its state, its progress
+    toward a projection that takes it, from its request and the latest change citing it (the changes store, as the
+    Goals row's stuck line reads them: ``stuck._kind_of``): judging (with the judge), reviewing (with the reviewer),
+    sent-back (the reviewer sent it back, ``round``), waiting (passed, for the owner), held (tried and failed, or written
+    and still unexplained: ``why``), ignored (``ignore-events``, or dismissed by the owner); else unexplained."""
+    from ..stuck import _kind_of
+    state, why, change, rnd, latest, title = "unexplained", None, None, None, None, None
+    rs = (req or {}).get("state")
+    since = float((req or {}).get("since") or (req or {}).get("raised") or 0.0)
+    mine = [c for c in cites.get(f"request:{(req or {}).get('id')}", []) if (c.get("made") or c.get("created") or 0) >= since - 1]
+    c = max(mine, key=lambda c: c.get("made") or c.get("created") or 0.0, default=None)
+    if c is not None:
+        kind = _kind_of(spec, c)
+        change, title = c["id"], c.get("title")
+        rnd = int(c.get("review_round") or (c.get("review") or {}).get("round") or 1)
+        latest = _latest(kind, c) or None
+        state = STAGE.get(kind, "held" if rs == "held" else "unexplained")
+    elif rs == "held":
+        state = "held"
+    if state == "held":
+        why = (req or {}).get("why") or latest
+    if g.get("ignored"):
+        state, why = "ignored", f"ignore-events: {g['ignored']}"
+    elif rs == "dismissed":
+        state, why = "ignored", "dismissed by the owner" + (f": {req['note']}" if req.get("note") else "")
+    rid = (req or {}).get("id")
+    return {**{f: g[f] for f in ("source", "type", "shape") if f in g}, "label": label(g), "count": g["count"],
+            "first": g["first"], "last": g["last"], "examples": g["examples"], "state": state, "why": why,
+            "request": rq_item(rid) if rid else None, "change": f"ergostat.model-change/{change}" if change else None,
+            "round": rnd, "latest": latest, "title": title,
+            "drafts": sorted((c or {}).get("drafted") or {}) or None,
+            **({"estimated": True} if g.get("estimated") else {})}
+
+
+def rq_item(x: str) -> str:
+    from .requests import item_of
+    return item_of(x)
+
+
+def _moves(old: dict | None, new: dict) -> bool:
+    """Whether a group's object is written again: its state, why, request, change, round or latest word moved, or its
+    count moved as a request's does (``_changed``: a tenth, or its last time with its count): never on every event."""
+    if old is None:
+        return True
+    if any(old.get(f) != new.get(f) for f in ("state", "why", "request", "change", "round", "latest")):
+        return True
+    return new["state"] != "explained" and _changed(old, new)
+
+
+def objects(p, spec, gs: list[dict], have: dict) -> dict:
+    """The groups written as the built-in projection's objects (``ergostat.unexplained.<state>``), each only when it
+    moved since it was last written (kept beside the tally): a second sync with nothing changed writes nothing, and each
+    attempt (a change made, judged, reviewed, sent back) is an event of the group's, in its history. A group no longer
+    counted is explained. Returns ``{written, explained}``."""
+    from ..spec.ir import UNEXPLAINED
+    from . import proposals as pr
+    from . import requests as rq
+    by_about = {r.get("about"): r for r in have.values() if r.get("source") == SOURCE}
+    cites = rq._citing(pr.changes(p))
+    written = explained = 0
+    with _kept(p) as st:
+        kept = st.setdefault("objects", {})
+        now_ids = set()
+        for g in gs:
+            if g["id"] == OVERFLOW:
+                continue
+            now_ids.add(g["id"])
+            o = object_of(spec, g, by_about.get(f"events:{g['id']}"), cites)
+            if _moves(kept.get(g["id"]), o):
+                p.events.add(f"{UNEXPLAINED}.{o['state']}", item=f"{UNEXPLAINED}/{g['id']}", source="ergostat", data=o)
+                kept[g["id"]] = {f: o.get(f) for f in KEPT}
+                written += 1
+        for k, old in list(kept.items()):
+            if k in now_ids or old.get("state") == "explained":
+                continue
+            r = by_about.get(f"events:{k}") or {}
+            o = {"count": 0, "state": "explained", "why": None,
+                 "request": rq_item(r["id"]) if r.get("id") else old.get("request"), "change": old.get("change"),
+                 "latest": "none of its events is unexplained now"}
+            p.events.add(f"{UNEXPLAINED}.explained", item=f"{UNEXPLAINED}/{k}", source="ergostat", data=o)
+            kept[k] = {**old, **{f: o.get(f) for f in KEPT if f in o}}
+            explained += 1
+    return {"written": written, "explained": explained}
 
 
 def open_requests(p) -> list[dict]:

@@ -452,3 +452,24 @@ def test_editing_a_projection_s_definition_tries_it_and_cancel_discards_it(brows
     assert pg.locator(".wb").count() == 0 and p.model.path.read_text() == before
     assert settled(pg) == []
     pg.close()
+
+
+def test_a_group_of_unexplained_events_links_its_events_and_shows_its_examples(browser, tmp_path):
+    from urllib.parse import parse_qs, urlparse
+
+    from ergostat.numbers import unexplained as ux
+    p = project_with_items(tmp_path / EXAMPLE)                 # (under use: modelling: the built-in ergostat.unexplained)
+    p.events.add("deploy.finished", source="deployer", data={"service": "s1"})
+    ux.sync(p)
+    (g,) = [g for g in ux.groups(p) if g["type"] == "deploy.finished"]
+    server, url = web.serve(p, 0)
+    try:
+        pg = opened(browser, url + f"/item/{quote('ergostat.unexplained/' + g['id'], safe='')}")
+        pg.wait_for_selector("[data-testid=unexplained-example]:has-text('s1')", timeout=WAIT)
+        href = pg.get_by_role("link", name="all its events").get_attribute("href")
+        assert parse_qs(urlparse(href).query)["q"] == ["source == 'deployer' and type == 'deploy.finished'"], href
+        assert settled(pg) == []
+        pg.close()
+    finally:
+        server.shutdown()
+        server.server_close()
