@@ -220,6 +220,46 @@ events:
 """
 
 
+def test_the_workbench_s_cli_and_mcp_tools(tmp_path):
+    """The workbench's answers without the page: events query/kinds and projection review, CLI and MCP."""
+    project(tmp_path)
+    f = tmp_path / "gadget.yaml"
+    f.write_text("projections:\n  gadget:\n" + "".join(f"    {x}\n" for x in GADGET.splitlines()))
+    run = lambda *a: subprocess.run([sys.executable, "-m", "ergostat", *a, "-C", str(tmp_path)],   # noqa: E731
+                                    capture_output=True, text=True)
+    got = run("events", "query", "type == 'gadget.made'")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout.startswith("6 of ") and "exact" in got.stdout and "... 1 more" in got.stdout
+    js = json.loads(run("events", "query", "type == 'gadget.made'", "--limit", "2", "--json").stdout)
+    assert js["total"] == 6 and js["shown"] == 2
+    assert run("events", "query").returncode == 2
+    got = run("events", "kinds", "type.startswith('gadget.')")
+    assert got.returncode == 0 and "when: type == 'gadget.made'" in got.stdout, got.stdout + got.stderr
+    js = json.loads(run("events", "kinds", "type.startswith('gadget.')", "--taken", "type == 'gadget.made'",
+                        "--json").stdout)
+    assert js["untaken"] == 4 and all("gadget.made" not in k["when"] for k in js["kinds"])
+    got = run("projection", "review", str(f), "--item", "g0")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout.startswith("projection gadget:") and "objects           5" in got.stdout
+    assert "no key" in got.stdout and "timeline   g0:" in got.stdout and "lifecycle  state" in got.stdout
+    js = json.loads(run("projection", "review", str(f), "--json").stdout)
+    assert js["objects"]["count"] == 5 and js["residual"]["no_key"]["count"] == 1
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("key: nope\n")
+    assert run("projection", "review", str(bad)).returncode == 1
+    from ergostat.mcp import TOOLS, Server
+    assert {"events_query", "events_kinds", "projection_review"} <= {t["name"] for t in TOOLS}
+    srv = Server(Path(tmp_path))
+    q = json.loads(srv.call("events_query", {"query": "type == 'gadget.made'"})["content"][0]["text"])
+    assert q["total"] == 6 and q["shown"] == 5
+    k = json.loads(srv.call("events_kinds", {"query": "type.startswith('gadget.')"})["content"][0]["text"])
+    assert k["count"] == 10 and k["kinds"]
+    r = json.loads(srv.call("projection_review", {"name": "gadget", "yaml": GADGET, "item": "g0"})["content"][0]["text"])
+    assert r["objects"]["count"] == 5 and r["timeline"]["found"]
+    assert all(len(g.get("events", [])) <= 2 for g in r["residual"]["no_key"]["groups"])
+    assert srv.call("events_query", {"query": "data.("}).get("isError")
+
+
 def test_the_ec2_stream(tmp_path):
     here = Path(__file__).parent / "fixtures" / "ec2_stream.py"
     subprocess.run([sys.executable, "-I", str(here), "batch", "--instances", "8", "--days", "1",

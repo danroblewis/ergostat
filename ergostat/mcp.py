@@ -23,6 +23,25 @@ def _text(x) -> dict:
     return {"content": [{"type": "text", "text": x if isinstance(x, str) else json.dumps(x, indent=2, default=str)}]}
 
 
+def _lean_review(r: dict, most: int = 2) -> dict:
+    """The workbench's review with each residual group's whole events cut to ``most`` and the objects' keys to 20 (the
+    page steps through them; an agent asks for one with item=KEY)."""
+    if not r.get("ok"):
+        return r
+    res = r.get("residual") or {}
+    for part in ("no_key", "refused", "splits"):
+        for g in (res.get(part) or {}).get("groups", []):
+            for k in ("events", "samples"):
+                if isinstance(g.get(k), list) and len(g[k]) > most:
+                    g[k + "_left"] = len(g[k]) - most
+                    g[k] = g[k][:most]
+    o = r.get("objects") or {}
+    if len(o.get("keys") or []) > 20:
+        o["keys_left"] = len(o["keys"]) - 20
+        o["keys"] = o["keys"][:20]
+    return r
+
+
 def _obj(props: dict | None = None, required: list | None = None) -> dict:
     return {"type": "object", "properties": props or {}, **({"required": required} if required else {})}
 
@@ -124,6 +143,32 @@ TOOLS = [
      "(type, item, source, data.detail.state; a list's members []), its types, how often it is there (%), how many "
      "values it takes and up to five of them, trimmed. type: a glob (aws.*); since: 7d; limit: the newest N (5,000).",
      "inputSchema": _obj({"type": {"type": "string"}, "since": {"type": "string"}, "limit": {"type": "integer"}})},
+    {"name": "events_query", "description": "The indexed query over the record (SPEC §5a, The query engine): query is an "
+     "expression over an event (type.startswith('aws.'), data.detail.state == 'running', has('i-0abc')); how many events "
+     "it holds (total, of record), how it was answered (exact, indexed, scanned, capped, estimated) and the newest limit "
+     "(default 5, at most 500) whole. sample: evaluate N candidates and estimate; compare: an earlier query (what this "
+     "adds and drops); since/until: 7d or epoch seconds.",
+     "inputSchema": _obj({"query": {"type": "string"}, "limit": {"type": "integer"}, "sample": {"type": "integer"},
+                          "compare": {"type": "string"}, "since": {"type": "string"}, "until": {"type": "string"}},
+                         ["query"])},
+    {"name": "events_kinds", "description": "The kinds of event a query's result holds, suggested from the data (SPEC "
+     "§5a, The workbench): each a name, a when: to put in a projection's events:, its count, the paths every event of "
+     "it has and two trimmed samples. taken: the when:s already accepted, in order; only the events none takes are "
+     "suggested from (untaken), and accepting every suggestion leaves nothing to suggest.",
+     "inputSchema": _obj({"query": {"type": "string"}, "taken": {"type": "array", "items": {"type": "string"}},
+                          "since": {"type": "string"}, "until": {"type": "string"}}, ["query"])},
+    {"name": "projection_review", "description": "A draft projection held against its events as the workbench holds it "
+     "(SPEC §5a, The workbench): yaml its body (or projections: {NAME: ...}); per kind of event what it took; the "
+     "objects; each field's distribution across them; each one-of field's lifecycle (transitions, counted); the "
+     "residual (remainder: events no kind takes, by shape; no_key; refused by reason; contradictions; possible splits "
+     "and merges); duplicates; unmapped (paths no field, key or time: reads and not ignored: what is left to decide); "
+     "with item=KEY that object's timeline; with expected ({KEY: {field: value}}) each field scored. Each residual "
+     "group's whole events are cut to 2 (whole: true keeps up to 10). Nothing is written.",
+     "inputSchema": _obj({"name": {"type": "string"}, "yaml": {"type": "string"}, "since": {"type": "string"},
+                          "until": {"type": "string"}, "item": {"type": "string"},
+                          "events": {"type": "array", "items": {"type": "object"}}, "expected": {"type": "object"},
+                          "compare": {"type": "boolean"}, "system": {"type": "string"}, "whole": {"type": "boolean"}},
+                         ["yaml"])},
     {"name": "why", "description": "Why an item is not done: its state and for how long (unusual or not for its projection), "
      "the cause followed to its root (what it waits on, what that waits on: unfinished work, a person, a full pool, a "
      "gate or budget refusing runs, a dead or stale lease, a block failing or not running, a closed goal or intake, a "
@@ -422,6 +467,21 @@ class Server:
             kind = DECISION if recipe == "decisions" else CORRECTION
             return _text(cx.render(p, kind, a.get("scope") if kind == DECISION else (a.get("kind") or a.get("scope")),
                                    cx.budget_of(a.get("budget"))))
+        if name in ("events_query", "events_kinds", "projection_review"):
+            from .eventquery import QueryError
+            from .eventquery import run as query
+            from .spec import trying, workbench
+            from .web.projection_api import moment
+            try:
+                ask = {**a, **{k: moment(a.get(k)) for k in ("since", "until") if a.get(k) not in (None, "")}}
+                if name == "events_query":
+                    return _text(query(p.events, {"limit": 5, **ask}))
+                if name == "events_kinds":
+                    return _text(workbench.suggest(p, ask))
+                got = workbench.review(p, {**ask, "yaml": a.get("yaml") if isinstance(a.get("yaml"), str) else ""})
+            except (trying.TryError, QueryError) as e:
+                return {**_text(str(e)), "isError": True}
+            return _text(got if a.get("whole") else _lean_review(got))
         if name in ("projection_try", "events_shape"):
             from .spec import trying
             from .web.projection_api import moment, tried

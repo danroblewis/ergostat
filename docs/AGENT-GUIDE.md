@@ -1393,28 +1393,43 @@ Model it so ergostat can answer (SPEC §5a, *Stages*):
    way on a clock you set, then ask `item_progress` for the time left you worked by hand. The merge queue's own
    (`dev/bin/batches.py` `stage()`, `dev/model/landing.yaml`) is a worked example.
 
-## 3o. Writing a projection over a stream: shape, try, fix, then write
+## 3o. Writing a projection over a stream: shape, query, kinds, try, review, then write
 
-A raw stream (EventBridge, webhooks, a collector's lines) is many events, and reading them costs tokens you need for
-the model. Never read the events themselves to write a projection; ask for their shape and try the projection on
-them, in memory (SPEC §5a, *Trying a projection*):
+A raw stream (EventBridge, audit logs, webhooks, a collector's lines) is many events, and reading them costs tokens you
+need for the model. Never read the events themselves to write a projection; ask for their shape, their counts and the
+kinds they hold, and try and review the draft on them, in memory (SPEC §5a, *Trying a projection* and *The
+workbench*). Every step is a command (and an MCP tool), the same answers the owner's workbench page is built on; each
+says a few lines, and `--json` gives the answer whole:
 
-1. **The shape first**: `ergostat events shape --type 'aws.*' --since 7d` (MCP `events_shape`) lists each path into the
-   events (`data.detail.state`, `data.detail.eventName`), how often it is there, its types, how many values it takes
-   and a few of them. Choose `match:` and `key:` from it (a key unique to one thing: account + region + id, not the id
-   alone, when two accounts may share ids).
-2. **Try it**: write the body in a file and `ergostat projection try draft.yaml --name ec2 --since 7d` (MCP
-   `projection_try` with `yaml`). Read the few lines it says: *matched* by handler; *no key* (read, but `key:` found
-   nothing: the API calls about an instance under another path, grouped by `detail.eventName`); *unchanged* (folded
-   and changed nothing: a handler that does not cover them); *refused* by reason; each field's coverage and values;
-   the states; *duplicates* (delivered twice: a counting or appending handler counts them twice).
-3. **Fix one group at a time**, largest first, and try again. When the source can say what each item should be (a
-   fixture, a list from the source's own API), give it as `--expected FILE.json` (`{KEY: {field: value}}`): each field
-   right or wrong, the wrong grouped by likely cause (`missing`, `number vs text`, `case`, `fewer`). A field that is
-   wrong on a few items: `--item KEY` traces that one (each event, the handler that ran, each field before → after).
-   A state wrong on late events says the stream is out of order: fold by the event's own time or keep the furthest
-   state.
-4. **Write it** when the report reads right: into the model's `projections:` (the owner's page writes it from the
+1. **The shape first**: `ergostat events shape [--type 'aws.*'] [--since 7d]` (MCP `events_shape`) lists each path into
+   the events (`data.detail.state`, `data.detail.eventName`), how often it is there, its types, how many values it
+   takes and a few of them (80 paths at most: narrow it with `--type`, or look at a few events whole with step 2).
+2. **Count and look**: `ergostat events query "QUERY" [--limit N] [--json]` (MCP `events_query`) runs the indexed query
+   (`data.source == 'aws.ec2'`, `data.detail.state == 'running'`, `has('i-0abc')` for a value anywhere in the event):
+   how many events it holds, how it was answered, and the newest few (`--limit`, default 5; `--compare "EARLIER"`
+   says what one query adds and drops against another). Use it to settle a query and to see a handful of events whole.
+3. **The kinds of event**: `ergostat events kinds "QUERY" [--taken "WHEN" ...] [--json]` (MCP `events_kinds`) suggests
+   the kinds the query's events hold, each a `when:`, a count and the paths its events have. They are a start, not an
+   answer: merge or rename them as the source means them (a `methodName`, an `eventName`), and pass the `when:`s you
+   have accepted, in order, as `--taken` to see only what none of them takes yet.
+4. **Try it**: write the body in a file and `ergostat projection try draft.yaml --name ec2` (MCP `projection_try` with
+   `yaml`). Read the few lines it says: *matched* by kind of event; *no key* (read, but its key found nothing);
+   *unchanged* (folded and changed nothing); *refused* by reason; each field's coverage and values; the states;
+   *duplicates* (delivered twice: a counting or appending field counts them twice). Choose `key:` so it is unique to
+   one thing over time (account + region + id, not the id alone, when two accounts may share ids; an id the source
+   gives each incarnation, not a name that is used again).
+5. **Review it**: `ergostat projection review draft.yaml [--item KEY] [--json]` (MCP `projection_review`) holds the
+   draft against its events as the workbench does: per kind of event what it took and in how many objects; the
+   objects; the residual (the *remainder* no kind takes, by shape; *no key*, with the key fields each kind does not
+   tell; *refused* by reason; *contradictions*, rare transitions; possible *splits*, one thing named two ways, and
+   *merges*, a `first` field given two values: the key too coarse); *unmapped*, the paths no field, key or `time:`
+   reads and not in `ignore:` (what is left to decide); each field's distribution; each `one of` field's lifecycle;
+   and with `--item KEY` that object's timeline (each event, the kind that took it, each field before → after).
+6. **Fix one group at a time**, largest first, and try or review again. When the source can say what each item should
+   be (a fixture, a list from the source's own API), give it as `--expected FILE.json` (`{KEY: {field: value}}`):
+   each field right or wrong, the wrong grouped by likely cause (`missing`, `number vs text`, `case`, `fewer`). A
+   state wrong on late events says the stream is out of order: give the projection `time:` (the event's own time).
+7. **Write it** when the review reads right: into the model's `projections:` (the owner's page writes it from the
    projection's own page: Edit, its Definition, Save), then `ergostat check`.
 
 ## 4. Common mistakes
@@ -1446,8 +1461,10 @@ them, in memory (SPEC §5a, *Trying a projection*):
   item by its root, ranks the roots (stalls first, then by what waits on them), folds the goals off because of a root
   under it, and its first line names the biggest stall and its next step, or says nothing is stuck. Ask it first when
   many goals are off at once: fix the first stall, then ask again (SPEC §5a).
-- **A projection before you write it**: `ergostat events shape` and `ergostat projection try FILE.yaml` (MCP
-  `events_shape`, `projection_try`): the stream's paths, and a small report of what the draft folds (section 3o).
+- **A projection before you write it**: `ergostat events shape`, `events query QUERY`, `events kinds QUERY`,
+  `projection try FILE.yaml` and `projection review FILE.yaml` (MCP `events_shape`, `events_query`, `events_kinds`,
+  `projection_try`, `projection_review`): the stream's paths, a query's counts and samples, the kinds of event it
+  holds, and what the draft folds and leaves over (section 3o).
 - **MCP**: `claude mcp add ergostat -- ergostat -C PROJECT_DIR mcp` gives you `spec`, `check`,
   `coherence` (the three views against each other), `explain`, `status`, `items`, `try_change` (test a
   change before writing it) and more.

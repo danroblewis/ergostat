@@ -3599,7 +3599,14 @@ no file, no item index, no model.
 - `ergostat projection try FILE.yaml [--name N] [--events FILE.jsonl] [--since 7d] [--expected FILE.json] [--item KEY]
   [--refused REASON] [--json]` (FILE holds the body, or `projections: {NAME: …}`), its text a few aligned lines, exit 1
   when it does not check; `ergostat events shape [--type GLOB] [--since 7d] [--json]`; MCP's `projection_try` and
-  `events_shape`, with the same parameters.
+  `events_shape`, with the same parameters. The workbench's answers (below) are commands and tools too, each a thin
+  call to the same function, its text a few lines and `--json` the answer whole: `ergostat events query QUERY
+  [--limit N] [--sample N] [--compare QUERY] [--since 7d] [--json]` (`/api/events/query`; `--limit` default 5),
+  `ergostat events kinds QUERY [--taken WHEN ...] [--json]` (`/api/events/kinds`) and `ergostat projection review
+  FILE.yaml [--name N] [--item KEY] [--events FILE.jsonl] [--expected FILE.json] [--since 7d] [--json]`
+  (`/api/projections/review`, exit 1 when it does not check); MCP's `events_query` (limit default 5),
+  `events_kinds` and `projection_review` (each residual group's whole events cut to 2 and the objects' keys to 20
+  unless `whole: true`).
 - On the projection's page, **Edit** is the workbench (below): the body as written (its `dashboards:` left out, kept
   on Save) in the code editor beside its steps (YAML, check's errors on their lines, tried as it changes, the page's
   panels drawing the draft's items). **Save** writes the definition into the model where it is defined (a new one:
