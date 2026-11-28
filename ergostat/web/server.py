@@ -416,9 +416,11 @@ def _as_listed(got: dict, needle: str | None, per_kind: int, shown: bool, hide: 
         matched[k] = matched.get(k, 0) + 1
         if not per_kind or matched[k] <= per_kind:
             kept.append(i)
-    if shown:
+    if shown:                                        # (a waiting inbox item: all of it, its card's words)
+        from ..spec.ir import INBOX
         show = {k["name"]: set(k["show"]) for k in got["projections"]}
-        kept = [{**i, "fields": {**{f: v for f, v in i["fields"].items() if f in show.get(i.get("projection") or "", ())},
+        kept = [i if i.get("projection") == INBOX and i.get("state") == "waiting" else
+                {**i, "fields": {**{f: v for f, v in i["fields"].items() if f in show.get(i.get("projection") or "", ())},
                                  **_lease_of(i["fields"])}} for i in kept]
     return {**got, "items": kept, "matched": matched, "listed": len(got["items"])}
 

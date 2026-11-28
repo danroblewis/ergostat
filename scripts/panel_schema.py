@@ -16,7 +16,7 @@ NAMES = {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items":
 OLD = ("kind", "kinds", "per_kind")   # the names a projection was written under before (2026-11-26): gone
 # the parameters the newer kinds take (the older ones' are in the schema already): each one's type
 PARAMS = {
-    "fit": FLAG, "quiet": FLAG, "header": FLAG, "address": {"type": "string", "pattern": "^/diagram"},
+    "fit": FLAG, "quiet": FLAG, "counts": FLAG, "address": {"type": "string", "pattern": "^/diagram"},
     "agent": {"anyOf": [{"$ref": "#/$defs/name"}, {"const": "$agent"}]},     # $agent: the page's address's (page: agent)
     "columns": {"oneOf": [{"enum": list(d.GOAL_COLUMNS)}, {"type": "array", "minItems": 1, "items": {"enum": list(d.GOAL_COLUMNS)}}]},
     "item": TEXT, "q": TEXT, "sort": TEXT, "history": TEXT, "field": TEXT, "match": TEXT, "about": {"$ref": "#/$defs/name"},
@@ -25,7 +25,6 @@ PARAMS = {
     "finished": {"enum": ["hide", "waits", "show"]}, "states": {"enum": ["all", "groups"]},
     "per_projection": {"type": "integer", "minimum": 1, "maximum": 500},
     "projection": TEXT, "projections": NAMES,
-    "kinds": NAMES,                                   # the decisions panel's: which kinds of entry (change, request, action…)
     "view": {"enum": ["dynamics", "blocks", "process"]},
     "show": {"oneOf": [{"enum": ["waiting", "off", "housekeeping", "suggestions"]},
                        {"type": "array", "minItems": 1, "items": {"enum": ["waiting", "off", "housekeeping", "suggestions"]}}]},

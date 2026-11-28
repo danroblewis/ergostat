@@ -722,6 +722,8 @@
             "projection-now",
             "projection-model",
             "projection-definition",
+            "projection-summary",
+            "projection-states",
             "item-list",
             "item-summary",
             "item-why",
@@ -739,7 +741,6 @@
             "goal-crossings",
             "goal-decisions",
             "attention",
-            "decisions",
             "legend",
             "feedback-loops",
             "control-loops",
@@ -855,7 +856,7 @@
         "field": {"type": "string", "minLength": 1},
         "query": {"type": "string", "minLength": 1},
         "header": {"type": "boolean"},
-        "kinds": {"oneOf": [{"type": "string"}, {"type": "array", "minItems": 1, "items": {"type": "string"}}]}
+        "counts": {"type": "boolean"}
       },
       "allOf": [
         {
@@ -1012,25 +1013,25 @@
           }
         },
         {
+          "if": {"properties": {"panel": {"const": "projection-summary"}}},
+          "then": {
+            "required": ["projection"],
+            "propertyNames": {"enum": ["panel", "fit", "note", "projection", "quiet", "size", "title"]}
+          }
+        },
+        {
+          "if": {"properties": {"panel": {"const": "projection-states"}}},
+          "then": {
+            "required": ["projection"],
+            "propertyNames": {"enum": ["panel", "counts", "fit", "note", "projection", "quiet", "size", "title"]}
+          }
+        },
+        {
           "if": {"properties": {"panel": {"const": "item-list"}}},
           "then": {
             "required": ["projection"],
             "propertyNames": {
-              "enum": [
-                "panel",
-                "finished",
-                "fit",
-                "header",
-                "n",
-                "note",
-                "projection",
-                "q",
-                "quiet",
-                "size",
-                "sort",
-                "state",
-                "title"
-              ]
+              "enum": ["panel", "finished", "fit", "n", "note", "projection", "q", "quiet", "size", "sort", "state", "title"]
             }
           }
         },
@@ -1126,10 +1127,6 @@
         {
           "if": {"properties": {"panel": {"const": "attention"}}},
           "then": {"propertyNames": {"enum": ["panel", "fit", "note", "quiet", "show", "size", "system", "title"]}}
-        },
-        {
-          "if": {"properties": {"panel": {"const": "decisions"}}},
-          "then": {"propertyNames": {"enum": ["panel", "fit", "kinds", "note", "quiet", "size", "system", "title"]}}
         },
         {
           "if": {"properties": {"panel": {"const": "legend"}}},

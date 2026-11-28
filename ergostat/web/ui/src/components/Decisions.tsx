@@ -90,6 +90,21 @@ export function DecisionCard({ e }: { e: Entry }) {
   );
 }
 
+export const INBOX = "ergostat.inbox";
+
+/** A waiting item of ergostat.inbox as its card is drawn: its key the entry's id, its fields what was asked (inbox/
+ *  history.py ASKED and CARD); asked before its card's words were kept, the answers its kind is given. */
+export function entryOf(i: any, now: number): Entry {
+  const f = i.fields || {};
+  const kind = String(f.kind || i.id.split("/")[1] || "");
+  const verbs: string[] = Array.isArray(f.verbs) ? f.verbs
+    : kind === "person" ? ["done"] : kind === "breaker" ? ["approve"] : ["approve", "deny"];
+  const wb = typeof f.workbench === "string" ? new URLSearchParams(f.workbench.split("?")[1] || "").get("workbench") : null;
+  return { id: String(i.id).slice(INBOX.length + 1), kind, summary: String(f.summary || i.id), age: Math.max(0, now - (f.asked || i.first || now)),
+    link: f.link, verbs, why: f.why, warn: f.warn, run: f.run, suggest: f.suggest, flow: f.flow, unit: f.unit, block: f.block,
+    system: f.system, workbench: wb ? [{ projection: wb, link: f.workbench }] : undefined };
+}
+
 /** The entries, each a card; with none, that nothing waits. */
 export function Decisions({ entries }: { entries: Entry[] }) {
   if (!entries.length) return <p id="may-do" className="may-do">Nothing waits for you.</p>;

@@ -15,6 +15,8 @@ import time
 from ..spec.ir import INBOX
 
 ASKED = ("class", "kind", "summary", "why", "link")
+# what its card is drawn from while it waits (the Inbox's list, SPEC §12o): how it is answered and what it says
+CARD = ("verbs", "warn", "run", "suggest", "flow", "unit", "block", "system")
 
 
 def item_of(eid: str) -> str:
@@ -33,7 +35,7 @@ def waiting(p, spec) -> dict[str, dict]:
 
 
 def asked(p, e: dict, round: int) -> dict | None:
-    data = {k: e[k] for k in ASKED if e.get(k) not in (None, "")}
+    data = {k: e[k] for k in (*ASKED, *CARD) if e.get(k) not in (None, "", [])}
     data.update(asked=e["time"], round=round, **({"workbench": e["workbench"][0]["link"]} if e.get("workbench") else {}))
     return p.events.add(f"{INBOX}.asked", item=item_of(e["id"]), source="ergostat", data=data,
                         id=_id(e["id"], round, "asked"))

@@ -8,11 +8,13 @@ import {
 } from "../../charts/ItemCharts";
 import { PanelFrame } from "../../charts/PanelView";
 import { FinishedNote, Pager } from "../../controls";
+import { Decisions, entryOf, INBOX } from "../../Decisions";
+import { nowS } from "../../../lib/format";
 import {
   CHANGES_SHOWN, hasPath, hasRelations, ItemChanges, ItemEvents, ItemFields, ItemMoves, ItemPath, ItemRefused, ItemRelations,
   ItemSummary, ItemWhy, whySays,
 } from "../../itemParts";
-import { hiddenStates, ItemsTable, ProjectionBar } from "../../items";
+import { hiddenStates, ItemsTable, ProjectionBar, ProjectionGraph } from "../../items";
 import { EveryProjection, ProjectionModel, ProjectionsOverview, ProcessMapLink } from "../../projectionParts";
 import { Code } from "../../Markdown";
 import { Async, Empty, Loading } from "../../ui";
@@ -103,6 +105,46 @@ function ProjectionDefinitionFrame({ def, every, refreshKey, tools }: FrameProps
   );
 }
 
+/** What the projection-summary and projection-states panels ask GET /api/items: the projection's frame alone (its
+ *  counts, moves, ends, description, system), the list's answer when the page has asked it (any of that path that
+ *  lists the projection). */
+const frameParams = (def: PanelDef) => ({ projection: def.projection, n: 1, shown: 1, draft: def.draft });
+const listsIt = (def: PanelDef) => (d: any) => !!d?.projections?.some((x: any) => x.name === def.projection);
+
+function useFrame(def: PanelDef, every: number | null | undefined, refreshKey: unknown) {
+  const got = usePanelAnswer<any>(def.projection ? "items" : null, frameParams(def), every, refreshKey, listsIt(def));
+  return { got, k: got.data?.projections?.find((x: any) => x.name === def.projection) };
+}
+
+/** Its name, id pattern, how many items, its description and the system it is in. The page that is the projection's
+ *  own draws its name as the page's heading (`heading: 1`, a page's key). */
+function ProjectionSummaryFrame({ def, every, refreshKey, tools }: FrameProps) {
+  const { got, k } = useFrame(def, every, refreshKey);
+  return (
+    <PanelFrame panel={{ ...asQueryPanel(def), title: def.title || "", note: def.note }} tools={tools}
+      className={`panel-kind-${def.panel}${def.title ? "" : " panel-untitled"}`}>
+      {k ? <ProjectionBar k={k} level={def.heading === 1 ? 1 : 2} />
+        : got.error ? <p className="note lvl-error">{got.error.message}</p>
+        : got.data ? <p className="muted">{String(def.projection)} is not one of the model's projections.</p> : <Loading />}
+    </PanelFrame>
+  );
+}
+
+/** Its graph of states: each state's count now, the moves its items made (with how many times), the arrivals, the
+ *  moves back; a state not reached yet faded in its place, an end boxed double. A state chosen filters the page's list
+ *  of it (`onState`, a page's key), else leads to its list in that state. `counts: false`: without the numbers. */
+function ProjectionStatesFrame({ def, every, refreshKey, tools }: FrameProps) {
+  const { got, k } = useFrame(def, every, refreshKey);
+  return (
+    <Framed def={{ fit: true, ...def }} title="Its states" tools={tools}>
+      {k ? <ProjectionGraph k={k} state={def.state || null} counts={def.counts !== false}
+        onState={typeof def.onState === "function" ? def.onState : undefined} />
+        : got.error ? <p className="note lvl-error">{got.error.message}</p>
+        : got.data ? <p className="muted">{String(def.projection)} is not one of the model's projections.</p> : <Loading />}
+    </Framed>
+  );
+}
+
 /** What the item-list panel asks GET /api/items: a page of one projection's, searched and sorted by the server. */
 export function itemListParams(def: PanelDef): Record<string, unknown> {
   const n = def.n ?? 25, page = Math.max(1, def.page ?? 1);
@@ -123,7 +165,13 @@ function ItemListFrame({ def, every, refreshKey, tools }: FrameProps) {
       <Async state={got}>
         {(d) => {
           const k = d.projections?.find((x: any) => x.name === projection);
-          const its = d.items.filter((i: any) => i.projection === projection);
+          const listed = d.items.filter((i: any) => i.projection === projection);
+          // ergostat.inbox's: each one waiting a card answered in place (oldest first, as `ergostat inbox` lists them),
+          // the rest its rows
+          const inbox = projection === INBOX && (!state || state === "waiting") && !needle;
+          const waits = inbox ? listed.filter((i: any) => i.state === "waiting").sort((a: any, b: any) => (a.fields?.asked ?? a.first) - (b.fields?.asked ?? b.first)) : [];
+          const its = inbox ? listed.filter((i: any) => i.state !== "waiting") : listed;
+          const now = nowS();
           const left = hiddenStates(k).filter((s) => k?.counts?.[s]);
           const nLeft = left.reduce((a, s) => a + k.counts[s], 0);
           const pager = (where: "top" | "foot") => (
@@ -132,8 +180,7 @@ function ItemListFrame({ def, every, refreshKey, tools }: FrameProps) {
           );
           return (
             <section className="sys-group projection-items">
-              {/* header: the projection's bar above its list, its graph of states (a state chosen there, the list's) */}
-              {def.header && k && <ProjectionBar k={k} state={state || null} onState={(st) => set({ state: st, page: null })} />}
+              {inbox && <Decisions entries={waits.map((i: any) => entryOf(i, now))} />}
               {its.length ? (
                 <>
                   {pager("top")}
@@ -143,7 +190,7 @@ function ItemListFrame({ def, every, refreshKey, tools }: FrameProps) {
                   </div>
                   {pager("foot")}
                 </>
-              ) : (
+              ) : inbox ? null : (
                 <Empty>{needle ? "Nothing matches." : state ? `No ${projection} items in ${state}.` : "No items to show."}</Empty>
               )}
               {!showFin && !state && !needle && <FinishedNote n={nLeft} states={left} onShow={() => set({ finished: "show", page: null })} />}
@@ -279,6 +326,8 @@ export const ITEMS: Record<string, PanelKind> = {
   "projection-now": { label: "A projection's states now", needs: "projection", Frame: ProjectionNowFrame },
   "projection-model": { label: "What in the model counts a projection", needs: "projection", Frame: ProjectionModelFrame },
   "projection-definition": { label: "A projection's definition", needs: "projection", Frame: ProjectionDefinitionFrame },
+  "projection-summary": { label: "A projection: its name, count, description and system", needs: "projection", Frame: ProjectionSummaryFrame },
+  "projection-states": { label: "A projection's graph of states", needs: "projection", Frame: ProjectionStatesFrame },
   "item-list": { label: "A projection's items, a page at a time", needs: "projection", Frame: ItemListFrame },
   "item-summary": { label: "An item: its projection, state and age", needs: "item", Frame: ItemSummaryFrame },
   "item-why": { label: "An item: why it is not done", needs: "item", Frame: ItemWhyFrame },

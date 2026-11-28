@@ -1,6 +1,7 @@
-"""A projection's list page draws its states as the graph its items made (SPEC §5a, *The projection's page*): an arrow
-for each move that happened, with how many times, none for one that never did; the arrivals as an entry; the
-finishing states marked; a chip still filters the list.
+"""A projection's list page draws its states as the graph its items made (SPEC §5a, *The projection's page*), in its
+projection-states panel: an arrow for each move that happened, with how many times, none for one that never did; the
+arrivals as an entry; the finishing states marked; a chip still filters the list. Its summary is a panel too: the
+page is all panels, no line of "finishes" of its own.
 
     uv run --with playwright==1.63.0 python -m pytest -q tests/test_react_state_graph.py
 """
@@ -58,7 +59,7 @@ def branched(tmp_path_factory):
 
 def test_the_list_header_draws_the_moves_made_not_the_declared_order(browser, branched):
     pg = opened(browser, branched + "/change")
-    g = pg.locator(".projection-bar .state-graph")
+    g = pg.locator(".panel-kind-projection-states .state-graph")
     g.locator(".sg-edge").first.wait_for(timeout=WAIT)
     edges = {(e.get_attribute("data-from"), e.get_attribute("data-to")): int(e.get_attribute("data-n"))
              for e in g.locator(".sg-edge").all()}
@@ -69,6 +70,11 @@ def test_the_list_header_draws_the_moves_made_not_the_declared_order(browser, br
     assert g.locator(".sg-canvas .stbox.unreached[data-state=verified]").count() == 1                # never reached: in its place
     assert g.locator(".sg-edge[data-to=verified], .sg-edge[data-from=verified]").count() == 0      # with no arrow
     assert "not reached yet" not in g.inner_text()                                                    # no line of its own
+    assert "refused: finishes" in g.locator(".stbox[data-state=refused]").get_attribute("title")      # how it ends: on hover
+    summary = pg.locator(".panel-kind-projection-summary .projection-bar[data-projection=change]")
+    assert summary.locator("h1").count() == 1 and "11 items" in summary.inner_text()
+    assert "finishes" not in pg.locator(".page").inner_text()                                         # no line of its own
+    assert pg.locator(".page > .projection-bar").count() == 0                                         # nothing outside the panels
     box = {s: g.locator(f".sg-canvas .stbox[data-state={s}]").bounding_box() for s in ("made", "checked", "refused", "superseded", "verified")}
     assert box["made"]["x"] < box["checked"]["x"] < box["refused"]["x"] == box["superseded"]["x"]    # left to right, side by side
     assert box["verified"]["x"] >= box["refused"]["x"]                                                # an end: the last column
@@ -76,8 +82,8 @@ def test_the_list_header_draws_the_moves_made_not_the_declared_order(browser, br
     pg.wait_for_url("**state=superseded**", timeout=WAIT)
     assert settled(pg) == []
     pg.close()
-    pg = opened(browser, branched + "/ticket")                       # every projection's header: the ticket's, in a line
-    g = pg.locator(".projection-bar .state-graph")
+    pg = opened(browser, branched + "/ticket")                       # every projection's states panel: the ticket's, in a line
+    g = pg.locator(".panel-kind-projection-states .state-graph")
     g.locator(".sg-edge").first.wait_for(timeout=WAIT)
     edges = {(e.get_attribute("data-from"), e.get_attribute("data-to")) for e in g.locator(".sg-edge").all()}
     assert edges == {("opened", "working"), ("working", "done")}

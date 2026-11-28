@@ -23,7 +23,7 @@ TITLES = {f"ergostat.{k}": v for k, v in {
     "model-change": "Model changes", "intervention-class": "Model requests", "modelling-request": "Modelling requests",
     "claim": "Claims", "decision": "Decisions",
     "correction": "Corrections", "message": "Messages", "verdict": "Verdicts", "context": "Context uses",
-    "report": "Reports", "action": "Actions", "workspace": "Workspaces", "failure": "Failures"}.items()}
+    "report": "Reports", "action": "Actions", "workspace": "Workspaces", "failure": "Failures", "inbox": "Inbox"}.items()}
 
 
 def kind_systems(spec) -> dict[str, dict]:

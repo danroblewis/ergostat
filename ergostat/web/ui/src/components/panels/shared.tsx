@@ -23,11 +23,14 @@ export function SharedAnswers({ answers, children }: { answers: Entry[]; childre
   return <Answers.Provider value={by}>{children}</Answers.Provider>;
 }
 
-/** A panel's answer: the page's when it has asked the same (or, `loose`, anything of that path), else its own. */
+/** A panel's answer: the page's when it has asked the same (or, `loose`, anything of that path; a test: anything of
+ *  that path whose answer passes it, or that has not come yet), else its own. */
 export function usePanelAnswer<T = any>(path: string | null, params: Record<string, unknown>, every?: number | null,
-  refreshKey?: unknown, loose = false): ApiState<T> {
+  refreshKey?: unknown, loose: boolean | ((d: T) => boolean) = false): ApiState<T> {
   const by = useContext(Answers);
-  const hit = path == null ? undefined : by[keyOf(path, params)] ?? (loose ? by[`${path}?*`] : undefined);
+  const any = path == null || !loose ? undefined : by[`${path}?*`];
+  const fits = any && (loose === true || any.data === undefined || (loose as (d: T) => boolean)(any.data));
+  const hit = path == null ? undefined : by[keyOf(path, params)] ?? (fits ? any : undefined);
   const own = usePanelApi<T>(hit ? null : path, params, every, refreshKey);
   return hit ?? own;
 }

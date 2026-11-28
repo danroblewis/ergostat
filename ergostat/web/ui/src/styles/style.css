@@ -478,7 +478,6 @@ figure.plot-fig { margin: 0 0 var(--sp-3); }
 .projection-bar .kname .mono, .projection-bar .projection-total { font-weight: 400; color: var(--muted); margin-left: var(--sp-1); font-size: var(--text-sm); }
 .projection-bar .projection-id { font-weight: 400; }
 .projection-bar .projection-desc { margin: var(--sp-1) 0 0; max-width: 60em; }
-.projection-bar .projection-says { margin: var(--sp-1) 0 0; }
 /* the projection's page: its sections stack, each within the page's width */
 .projection-page .projection-flow { max-width: none; }
 .projection-page .projection-sect { min-width: 0; max-width: 100%; }

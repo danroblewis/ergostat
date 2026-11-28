@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ErrorNote, Filters, FinishedToggle, ProjectionBar, Page, PAGE_SIZES, SearchBox, StatesChoice } from "../../components";
+import { ErrorNote, Filters, FinishedToggle, Page, PAGE_SIZES, SearchBox, StatesChoice } from "../../components";
 import { Contained } from "../../components/Contained";
 import { EditableDashboard, useEditing } from "../../components/panels/EditableDashboard";
 import { itemListParams } from "../../components/panels/kinds/items";
@@ -13,8 +13,9 @@ import { PROJECTION_PANELS } from "../../lib/pages";
 import { starter, useTry } from "./DefinitionEditor";
 import { Workbench, WorkbenchYaml } from "./workbench/Workbench";
 
-/* /PROJECTION, a dashboard made in advance (kindpage.js): its bar as the page's heading (a state chip filters the
-   list), then its panels: Now (projection-now: its states over the window and how long its finished took), In the
+/* /PROJECTION, a dashboard made in advance (kindpage.js), all panels: what it is (projection-summary: its name, the
+   page's heading, its id pattern, count, description and system), its graph of states (projection-states: a state
+   chosen filters the list), Now (projection-now: its states over the window and how long its finished took), In the
    model (projection-model: what counts it, the goals and loops it is in), and its items
    (item-list: a page at a time, searched and sorted by the server). The page asks each answer once and hands it to
    its panels; the list's filters are in its head. Every choice is in the address: state=, q=, finished=show, sort=PROJECTION:field, page=PROJECTION:N, size=,
@@ -110,7 +111,10 @@ export default function ProjectionPage({ projection, system = "", creating = fal
   const list: PanelDef = { panel: "item-list", projection, draft, ...listed };
   const decorate = (d: PanelDef): PanelDef => {
     const mine = d.projection === projection && draft ? { ...d, draft } : d;
-    return mine.panel === "item-list" && mine.projection === projection ? { ...mine, ...listed }
+    const own = mine.projection === projection;
+    return mine.panel === "item-list" && own ? { ...mine, ...listed }
+      : mine.panel === "projection-states" && own ? { ...mine, state: state || undefined, onState: (st: string | null) => set({ state: st }) }
+      : mine.panel === "projection-summary" && own ? { ...mine, heading: 1 }
       : mine.panel === "projection-now" ? { ...mine, states: all ? "all" : mine.states } : mine;
   };
   const asked = itemListParams(list);
@@ -123,9 +127,7 @@ export default function ProjectionPage({ projection, system = "", creating = fal
 
   return (
     <div className="page projection-page">
-      {k ? (
-        <ProjectionBar k={k} level={1} state={state} onState={(st) => set({ state: st })} />
-      ) : items.error && !creating ? (
+      {k ? null : items.error && !creating ? (
         <Page title={projection}><ErrorNote error={items.error} /></Page>
       ) : (
         <h1>{projection}{creating && <span className="muted small"> (new: not in the model until it is saved)</span>}</h1>

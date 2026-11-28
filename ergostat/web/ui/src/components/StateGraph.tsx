@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import { projectionHref } from "../lib/hrefs";
 
 /* A projection's graph of states (SPEC §5a, *The projection's page*): its states as chips with how many items are in
@@ -95,9 +96,12 @@ export function layoutStates(states: string[], counts: Record<string, number>, m
   };
 }
 
-export function StateGraph({ k, state, onState }: {
-  k: any; state?: string | null; onState?: (st: string | null) => void;
+/** `onState`: a chip chosen filters the page's list (none: it leads to the projection's list in that state); `counts`
+ *  false: the chips and arrows without their numbers. */
+export function StateGraph({ k, state, onState, counts: numbered = true }: {
+  k: any; state?: string | null; onState?: (st: string | null) => void; counts?: boolean;
 }) {
+  const go = useNavigate();
   const counts: Record<string, number> = k.counts || {};
   const moves: Move[] = k.moves || [];
   const ends = new Set<string>(k.lives_on ? [] : [...(k.finished || []), ...(k.final || [])]);
@@ -106,9 +110,14 @@ export function StateGraph({ k, state, onState }: {
   const chip = (st: string, style?: React.CSSProperties, unreached = false) => (
     <a key={st} href={projectionHref(k.name, `state=${encodeURIComponent(st)}`)} style={style} data-state={st}
       className={`stbox${counts[st] ? " some" : ""}${state === st ? " on" : ""}${ends.has(st) ? " final" : ""}${unreached ? " unreached" : ""}`}
-      aria-pressed={state === st} title={(ends.has(st) ? `${st}: finishes` : st) + (unreached ? " (no item has reached it yet)" : "")}
-      onClick={(ev) => { ev.preventDefault(); onState?.(state === st ? null : st); }}>
-      <span className="n">{String(counts[st] || 0)}</span>{st}
+      aria-pressed={state === st} title={(ends.has(st) ? `${st}: finishes (an end, boxed double)` : st) + (unreached ? " (no item has reached it yet)" : "")}
+      onClick={(ev) => {
+        if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button) return;
+        ev.preventDefault();
+        if (onState) onState(state === st ? null : st);
+        else go(projectionHref(k.name, `state=${encodeURIComponent(st)}`));
+      }}>
+      {numbered && <span className="n">{String(counts[st] || 0)}</span>}{st}
     </a>
   );
   if (!moves.length) {                                // no move known (a draft, a record kept nowhere): the chips alone
@@ -132,7 +141,7 @@ export function StateGraph({ k, state, onState }: {
               return (
                 <g key={`in-${e.to}`} className="sg-entry" data-to={e.to}>
                   <path d={`M${n.x - ENTRY + 2},${mid(n)} L${n.x - 1},${mid(n)}`} markerEnd="url(#sg-head)" />
-                  <text x={n.x - ENTRY / 2} y={mid(n) - 4} textAnchor="middle">{e.n}</text>
+                  {numbered && <text x={n.x - ENTRY / 2} y={mid(n) - 4} textAnchor="middle">{e.n}</text>}
                 </g>
               );
             })}
@@ -152,7 +161,7 @@ export function StateGraph({ k, state, onState }: {
                 <g key={`${e.from}>${e.to}`} className={`sg-edge${e.back ? " back" : ""}`} data-from={e.from} data-to={e.to} data-n={e.n}>
                   <title>{`${e.from} → ${e.to}: ${e.n} time${e.n === 1 ? "" : "s"}`}</title>
                   <path d={d} markerEnd="url(#sg-head)" />
-                  <text x={lx} y={ly} textAnchor="middle">{e.n}</text>
+                  {numbered && <text x={lx} y={ly} textAnchor="middle">{e.n}</text>}
                 </g>
               );
             })}

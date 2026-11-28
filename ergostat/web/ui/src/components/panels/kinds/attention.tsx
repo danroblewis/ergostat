@@ -1,7 +1,6 @@
 import { useCallback, type ReactNode } from "react";
 import { PanelFrame } from "../../charts/PanelView";
 import { Attention, ControlLoops, FeedbackLoops, feedbackCount, Legend, LEGEND_TYPE, QuietSystems, type AttentionPart } from "../../Attention";
-import { Decisions, type Entry } from "../../Decisions";
 import { useDetail } from "../../Detail";
 import { GoalDetail } from "../../GoalDetail";
 import { GoalControl, GoalParts, GoalRunbook } from "../../GoalParts";
@@ -39,26 +38,6 @@ function AttentionBody({ def }: PanelBodyProps) {
   return (
     <div className="panel-table">
       <Attention attention={(status?.attention || []).filter(about)} status={status} show={listOf(def.show) as AttentionPart[] | null} onGoal={onGoal} />
-    </div>
-  );
-}
-
-/** What waits on a person (GET /api/inbox: what `ergostat inbox` lists), each a card answered in place. `kinds`: only
- *  those kinds of entry (action, person, advise, steptest, change, request, breaker); `system`: those about a part it
- *  contains (a block's, or a request's part's system), the top level all of them. */
-function DecisionsBody({ def, every, refreshKey }: PanelBodyProps) {
-  const got = usePanelApi<{ entries: Entry[] }>("inbox", {}, every ?? 5000, refreshKey);
-  const { table } = useDashboards();
-  const s = scopedBy(table, def.system);
-  const kinds = listOf(def.kinds);
-  const within = (x: string | null | undefined): boolean => {   // the system, or one within it
-    for (let at = x; at; at = table?.scopes[at]?.within) if (at === s?.system) return true;
-    return false;
-  };
-  const about = (e: Entry) => !s || s.system === "" || (e.block ? s.has("agents", e.block) : within(e.system));
-  return (
-    <div className="panel-table">
-      <Async state={got}>{(d) => <Decisions entries={(d?.entries || []).filter((e) => (!kinds?.length || kinds.includes(e.kind)) && about(e))} />}</Async>
     </div>
   );
 }
@@ -120,7 +99,6 @@ function GoalControlBody({ def, every, refreshKey }: PanelBodyProps) {
 
 export const ATTENTION: Record<string, PanelKind> = {
   attention: { label: "What asks for you", Body: AttentionBody },
-  decisions: { label: "Decisions waiting for you", Body: DecisionsBody },
   legend: { label: "How to read a view", needs: "view", Body: LegendBody },
   "feedback-loops": { label: "Feedback loops", Body: FeedbackLoopsBody },
   "control-loops": { label: "Control loops", Body: ControlLoopsBody },

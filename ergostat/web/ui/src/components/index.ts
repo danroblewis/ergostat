@@ -10,7 +10,7 @@ export {
 } from "./ui";
 export { AgentLink, ItemLink, ProjectionLink } from "./links";
 export { EventsTable, EventDetail, useShowEvent, changeOf, type RecordEvent } from "./events";
-export { ProjectionBar, ItemsTable, FieldValue, StatesChoice, isShort, hiddenStates } from "./items";
+export { ProjectionBar, ProjectionGraph, ItemsTable, FieldValue, StatesChoice, isShort, hiddenStates } from "./items";
 export { GoalCells, type GoalColumn } from "./goals";
 export { Chart, Plot, PanelView, PanelFrame, QueryPanel, usePanelResults, Spark, FlowChart, ProjectionStates, valueText, type Series, type PlotSeries } from "./charts";
 export { GoalDetail } from "./GoalDetail";

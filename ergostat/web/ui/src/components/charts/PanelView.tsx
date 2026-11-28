@@ -98,7 +98,7 @@ export function PanelFrame({ panel, tools, className, children }: { panel: Panel
     <article className={`panel panel-${panel.size || "m"}${className ? ` ${className}` : ""}${panel.tall ? " panel-tall" : ""}${(panel as any).fit ? " panel-fit" : ""}`} data-panel={panel.id} aria-label={panel.title}>
       <header className="panel-head">
         <div className="panel-names">
-          <h3 className="panel-title" title={panel.title}>{panel.title}</h3>
+          {panel.title && <h3 className="panel-title" title={panel.title}>{panel.title}</h3>}
           {panel.note && <p className="panel-note">{panel.note}</p>}
         </div>
         {tools}

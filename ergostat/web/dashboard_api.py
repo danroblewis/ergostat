@@ -38,6 +38,7 @@ PATHS.update({"ladder": "agents", "agents": "agents", "daemons": "daemons", **{k
     "agent-what", "agent-definition", "agent-place", "agent-runs", "agent-log")}})   # agents
 PATHS.update({"projections": "items-overview", "items-by-projection": "items", "projection-now": "items-flow",
               "projection-model": "projections/{projection}", "projection-definition": "projections/{projection}",
+              "projection-summary": "items", "projection-states": "items",
               "item-list": "items", "item-why": "why", "item-summary": "items/{item}",
               "item-path": "items/{item}", "item-relations": "items/{item}", "item-fields": "items/{item}",
               "item-refused": "items/{item}", "item-moves": "items/{item}", "item-events": "items/{item}",
@@ -50,7 +51,8 @@ PATHS.update({"attention": "status", "feedback-loops": "graph", "control-loops":
 # a kind whose system: is worked out here (its endpoint takes none): its rows those the system contains
 SCOPED_HERE = ("goals", "agents", "ladder", "chart", "projections", "attention")
 FIXED = {"feedback-loops": {"view": ["dynamics"]}, "control-loops": {"view": ["blocks"]},
-         "item-field-chart": {"history": ["all"]}}     # (its fields' changes: what it charts)
+         "item-field-chart": {"history": ["all"]},     # (its fields' changes: what it charts)
+         **{k: {"n": ["1"], "shown": ["1"]} for k in ("projection-summary", "projection-states")}}   # (its frame alone)
 
 
 def default(spec) -> Dashboard:
@@ -243,7 +245,7 @@ def _run(live, p, panel: Panel, q: dict, snap):
                 for r in (contains or _contains(p, "") or {}).get(plural, [])][:8]
         panel = Panel(panel.panel, panel.title, panel.size, panel.note, {**panel.params, "refs": refs}, panel.where)
     path, asked = PATHS[panel.panel], {k: v for k, v in panel.params.items()
-                                       if k not in ("goals", "columns", "fit", "quiet", "show")
+                                       if k not in ("goals", "columns", "fit", "quiet", "show", "counts")
                                        and not (k == "system" and panel.panel in SCOPED_HERE)}
     for k in [k for k in asked if "{" + k + "}" in path]:   # a path naming one thing (agents/{agent}): it, not a query
         path = path.replace("{" + k + "}", quote(str(asked.pop(k)), safe=""))

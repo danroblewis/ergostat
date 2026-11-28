@@ -20,7 +20,7 @@ from tests.test_react_pages import EXAMPLE, ITEM, WAIT, browser, heading, opened
 pytestmark = pytest.mark.skipif(not __import__("ergostat.web.server", fromlist=["STATIC"]).STATIC.joinpath(
     "app", "index.html").is_file(), reason="the React page is not built")
 
-KINDS = ("projections", "items-by-projection", "projection-now", "projection-model", "projection-definition", "item-list", "item-summary", "item-why",
+KINDS = ("projections", "items-by-projection", "projection-summary", "projection-states", "projection-now", "projection-model", "projection-definition", "item-list", "item-summary", "item-why",
          "item-path", "item-relations", "item-fields", "item-refused", "item-moves", "item-events", "item-changes")
 BOARD = """
 dashboards:
@@ -29,6 +29,8 @@ dashboards:
     panels:
       - {panel: projections, size: full}
       - {panel: items-by-projection, q: ticket, size: full}
+      - {panel: projection-summary, projection: ticket}
+      - {panel: projection-states, projection: ticket}
       - {panel: projection-now, projection: ticket, states: all}
       - {panel: projection-model, projection: ticket}
       - {panel: projection-definition, projection: ticket}
@@ -93,6 +95,19 @@ def test_the_old_items_addresses_lead_to_each_projections_own(browser, board):
         pg.wait_for_url(new, timeout=WAIT)
         assert settled(pg, 500) == []
         pg.close()
+    pg = opened(browser, board + "/tickets")                         # its states, on another dashboard: drawn, and a state leads to its list
+    g = pg.locator(".panel-kind-projection-states .state-graph")
+    g.locator(".sg-edge").first.wait_for(timeout=WAIT)
+    assert {(e.get_attribute("data-from"), e.get_attribute("data-to")) for e in g.locator(".sg-edge").all()} == {
+        ("opened", "working"), ("working", "done")}
+    assert g.locator(".stbox[data-state=working]").get_attribute("href") == "/ticket?state=working"
+    assert pg.locator(".panel-kind-projection-summary .projection-bar[data-projection=ticket] h2").count() == 1
+    g.locator(".stbox[data-state=working]").click()
+    pg.wait_for_url("**/ticket?state=working", timeout=WAIT)
+    pg.locator(".panel-kind-item-list table tbody tr").first.wait_for(timeout=WAIT)
+    assert pg.locator(".panel-kind-projection-states .stbox.on[data-state=working]").count() == 1   # chosen on its own page
+    assert settled(pg) == []
+    pg.close()
     pg = opened(browser, board + "/tickets")                         # the board's projections panel: a card links to /PROJECTION
     pg.locator(".panel-kind-projections .projection-card[data-projection=ticket]").wait_for(timeout=WAIT)
     assert pg.locator(".projection-card[data-projection=ticket] a.pm-link").get_attribute("href") == "/diagrams?view=process&projections=ticket"
@@ -101,8 +116,8 @@ def test_the_old_items_addresses_lead_to_each_projections_own(browser, board):
 
 def test_the_projection_page_draws_its_panels_and_keeps_its_filters_in_the_address(browser, board):
     pg = opened(browser, board + "/ticket")
-    pg.locator(".projection-bar h1").wait_for(timeout=WAIT)
-    for kind in ("projection-now", "projection-model", "item-list"):
+    pg.locator(".panel-kind-projection-summary .projection-bar h1").wait_for(timeout=WAIT)   # the page is all panels
+    for kind in ("projection-summary", "projection-states", "projection-now", "projection-model", "item-list"):
         pg.locator(f".panel-kind-{kind}").wait_for(timeout=WAIT)
     assert pg.locator(".panel-kind-projection-definition").count() == 0           # the YAML shows it: not drawn by default
     pg.locator(".panel-kind-item-list table tbody tr").first.wait_for(timeout=WAIT)

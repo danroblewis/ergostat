@@ -1,7 +1,7 @@
 import { type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ago, dur, fmt, nowS, plural, stamp, timeField } from "../lib/format";
-import { itemHref, projectionHref } from "../lib/hrefs";
+import { itemHref, projectionHref, routeTable, scopeHref } from "../lib/hrefs";
 import { Segmented } from "./controls";
 import { StateGraph } from "./StateGraph";
 import { Markdown } from "./Markdown";
@@ -13,15 +13,16 @@ import { Table } from "./Table";
 /** The states a list leaves out unless shown: a projection's finished and dead, none for one that lives on. */
 export const hiddenStates = (k: any): string[] => (!k || k.lives_on ? [] : [...(k.finished || []), ...(k.dead ? ["dead"] : [])]);
 
-/** A projection's bar (kinds.js kindBar): title, id pattern, total, description, its graph of states (StateGraph: each
-    state's count now, the moves made between them), how it ends. */
-export function ProjectionBar({ k, level = 3, state, onState, open, onOpen }: {
-  k: any; level?: 1 | 2 | 3; state?: string | null; onState?: (st: string | null) => void; open?: boolean; onOpen?: () => void;
+/** A projection's bar (kinds.js kindBar), the projection-summary panel's body: title, id pattern, total, description,
+    the system it is in (a link to that system). Its graph of states is the projection-states panel's (ProjectionGraph). */
+export function ProjectionBar({ k, level = 3, open, onOpen }: {
+  k: any; level?: 1 | 2 | 3; open?: boolean; onOpen?: () => void;
 }) {
-  const counts: Record<string, number> = k.counts || {};
-  const total = Object.values(counts).reduce((a, b) => a + b, 0);
-  const fin = k.lives_on ? "lives on" : k.finished?.length ? `finishes: ${k.finished.join(", ")}` : null;
+  const total = Object.values<number>(k.counts || {}).reduce((a, b) => a + b, 0);
+  const ends = hiddenStates(k);                          // how many are not finished (the Inbox's: those waiting)
+  const unfinished = ends.length ? Object.entries<number>(k.counts || {}).filter(([s]) => !ends.includes(s)).reduce((a, [, n]) => a + n, 0) : null;
   const H = `h${level}` as "h1" | "h2" | "h3";
+  const sys = k.system && routeTable()?.scopes?.[k.system] ? scopeHref(k.system) : null;
   return (
     <div className="projection-bar" data-projection={k.name}>
       <H className="projection-title">
@@ -36,24 +37,33 @@ export function ProjectionBar({ k, level = 3, state, onState, open, onOpen }: {
           {k.title && <span className="mono">{k.name}</span>}
         </Link>
         <span className="muted small mono projection-id">{k.id || ""}</span>
-        <span className="muted projection-total"> {plural(total, "item")}</span>
+        <span className="muted projection-total"> {plural(total, "item")}{unfinished != null && total ? `, ${unfinished} not finished` : ""}</span>
+        {k.system && (sys
+          ? <Link to={sys} className="small projection-sys" title={k.system_why || `the system ${k.system}`}>{k.system}</Link>
+          : <span className="muted small projection-sys" title={k.system_why || ""}>{k.system}</span>)}
       </H>
       {k.description && <p className="projection-desc">{k.description}</p>}
-      {k.states?.length ? (
-        <StateGraph k={k} state={state} onState={onState} />
-      ) : (
+    </div>
+  );
+}
+
+/** A projection's graph of states, the projection-states panel's body (StateGraph: each state's count now, the moves
+    made between them, its ends boxed double); one without states, its total alone. */
+export function ProjectionGraph({ k, state, onState, counts = true }: {
+  k: any; state?: string | null; onState?: (st: string | null) => void; counts?: boolean;
+}) {
+  const total = Object.values<number>(k.counts || {}).reduce((a, b) => a + b, 0);
+  return (
+    <div className="projection-states" data-projection={k.name}
+      title={k.lives_on ? "it lives on: no state finishes it" : k.finished?.length ? `finishes: ${k.finished.join(", ")}` : undefined}>
+      {k.states?.length ? <StateGraph k={k} state={state} onState={onState} counts={counts} /> : (
         <div className="states">
-          <a href={projectionHref(k.name)} className={`stbox${total ? " some" : ""}`}
-            onClick={(ev) => { ev.preventDefault(); onState?.(null); }}>
-            <span className="n">{String(total)}</span>items
-          </a>
+          <Link to={projectionHref(k.name)} className={`stbox${total ? " some" : ""}`}
+            onClick={(ev) => { if (onState) { ev.preventDefault(); onState(null); } }}>
+            {counts && <span className="n">{String(total)}</span>}items
+          </Link>
         </div>
       )}
-      <p className="muted small projection-says">
-        {fin}
-        {fin && k.system ? " · " : null}
-        {k.system && <span className="projection-sys" title={k.system_why || ""}>in {k.system}</span>}
-      </p>
     </div>
   );
 }

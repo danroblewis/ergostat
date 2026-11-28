@@ -72,8 +72,11 @@ KINDS.update({
     "projection-now": {"projection", "points", "states"},  # GET /api/items-flow (and /api/projections/P): its states
     "projection-model": {"projection"},                   # GET /api/projections/P: what counts it, its goals and loops
     "projection-definition": {"projection"},              # GET /api/projections/P: its definition
-    "item-list": {"projection", "state", "q", "sort", "finished", "n", "header"},   # GET /api/items: one projection's,
-    #                                                       paged (header: its bar above it, with its graph of states)
+    "projection-summary": {"projection"},                 # GET /api/items: its name, id pattern, how many, description,
+    #                                                       its system
+    "projection-states": {"projection", "counts"},        # GET /api/items: its graph of states, the moves its items
+    #                                                       made (counts: false, the chips and arrows without numbers)
+    "item-list": {"projection", "state", "q", "sort", "finished", "n"},   # GET /api/items: one projection's, paged
     **{k: _ITEM for k in _ONE_ITEM},                      # GET /api/items/ITEM (item-why: GET /api/why?item=ITEM)
     "item-changes": _ITEM | {"history"},                  # GET /api/items/ITEM?history=FIELD|all: each field's changes
     "item-state-timeline": _ITEM,                         # GET /api/items/ITEM: its states over time, a band
@@ -83,6 +86,7 @@ KINDS.update({
 })
 NEEDS_ITEMS: dict[str, str] = {"projection-now": "projection", "projection-model": "projection",
                                "projection-definition": "projection", "item-list": "projection",
+                               "projection-summary": "projection", "projection-states": "projection",
                                **{k: "item" for k in _ONE_ITEM}, "item-state-timeline": "item",
                                "item-field-chart": "item", "item-events-histogram": "item"}
 
@@ -112,7 +116,8 @@ CHECKS_ITEMS = {
     "projections": {"states": _one_of("all", "groups")},
     "items-by-projection": {"q": _text, "finished": _one_of("hide", "waits", "show"), "per_projection": _whole(1, 500)},
     "projection-now": {"states": _one_of("all", "groups")},
-    "item-list": {"state": _text, "q": _text, "sort": _text, "finished": _one_of("hide", "waits", "show"), "header": _flag},
+    "item-list": {"state": _text, "q": _text, "sort": _text, "finished": _one_of("hide", "waits", "show")},
+    "projection-states": {"counts": _flag},
     **{k: {"item": _text} for k in _ONE_ITEM},
     "item-changes": {"item": _text, "history": _text},
     "item-state-timeline": {"item": _text},
@@ -178,8 +183,6 @@ def _check_record(c, spec, kind: str, x, at, what: str) -> bool:
 KINDS.update({
     "attention": {"show", "system"},                      # GET /api/status (its attention), these parts or all; a
     #                                                       system's: what is about a part it contains
-    "decisions": {"kinds", "system"},                     # GET /api/inbox: what waits on a person, each answerable
-    #                                                       (these kinds of entry, or all; a system's: about its parts)
     "legend": {"view"},                                   # drawn by the page: how to read that view's drawing
     "feedback-loops": {"system"},                         # GET /api/graph?view=dynamics: its feedback loops
     "control-loops": {"system"},                          # GET /api/graph?view=blocks: its control loops
@@ -191,9 +194,8 @@ KINDS.update({
 NEEDS_ATTENTION: dict[str, str] = {"legend": "view", "goal-runbook": "goal", "goal-parts": "goal",
                                    "goal-control": "goal"}
 CHOICES_ATTENTION = {"view": ("dynamics", "blocks", "process"),             # a parameter → the words it may be
-                     "show": ("waiting", "off", "housekeeping", "suggestions"),
-                     "kinds": ("action", "person", "advise", "steptest", "change", "request", "breaker")}   # inbox KINDS
-LISTS_ATTENTION = {"show", "kinds"}
+                     "show": ("waiting", "off", "housekeeping", "suggestions")}
+LISTS_ATTENTION = {"show"}
 
 NEEDS = {"query": "queries", "diagram": "address", "chart": "refs",   # (a chart: refs, or system) "states": "projection", "cycle-time": "projection", "scope": "goal",
          "items": "projection", "note": "text"}

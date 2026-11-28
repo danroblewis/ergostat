@@ -2091,7 +2091,9 @@ from these same panels, so a section seen on one page can be put on any dashboar
 | `items-by-projection` | `GET /api/items`: each projection's newest under its system | `q`, `finished` (`hide`, `waits`, `show`), `per_projection` (1 to 500) |
 | `projection-now` | `GET /api/items-flow`: a projection's states over the window and how long its finished took | `projection` (needed), `points`, `states` |
 | `projection-model`, `projection-definition` | `GET /api/projections/PROJECTION`: what in the model counts it, its goals and loops; its definition | `projection` (needed) |
-| `item-list` | `GET /api/items`: one projection's items, paged, searched and sorted by the server | `projection` (needed), `state` (one of its states), `q`, `sort` (`FIELD` or `-FIELD`), `finished`, `n`, `header` (`true`: the projection's bar above the list, with its graph of states; a state chosen there is the list's) |
+| `projection-summary` | `GET /api/items`: what a projection is: its name (a built-in's plain title, its name small), id pattern, how many items (and how many not finished, for one with finishing states: the Inbox's, those waiting), its description, and the system it is in as a link to that system | `projection` (needed) |
+| `projection-states` | `GET /api/items`: a projection's graph of states (section 5a, *The projection's page*): each state's count now, the moves its items made with how many times, the arrivals, the moves back, a state not reached yet faded in its place, its ends boxed double (said on hover). On the projection's own page a state chosen filters its list there (`state=`); anywhere else it leads to that list in that state | `projection` (needed), `counts` (`false`: the chips and arrows without their numbers) |
+| `item-list` | `GET /api/items`: one projection's items, paged, searched and sorted by the server; `ergostat.inbox`'s waiting items each drawn as its card, answered in place (section 12o), above the rest | `projection` (needed), `state` (one of its states), `q`, `sort` (`FIELD` or `-FIELD`), `finished`, `n` |
 | `item-summary`, `item-path`, `item-relations`, `item-fields`, `item-refused`, `item-moves`, `item-events` | `GET /api/items/ITEM`: one part of an item | `item` (needed: any id) |
 | `item-why` | `GET /api/why`: why it is not done (as the record is now) | `item` (needed) |
 | `item-changes` | `GET /api/items/ITEM?history=`: each field's changes | `item` (needed), `history` (a field, or `all`) |
@@ -2101,7 +2103,6 @@ from these same panels, so a section seen on one page can be put on any dashboar
 | `events` | `GET /api/events`: the record's events, newest first; with `remote`, that remote's, read there (section 4c) | `match` (a type as a glob, an item or a source), `query` (the event query: words a full-text search, else an expression; `unexplained()`; section 5a, *The Events dashboard's query*), `item`, `about` (a goal), `machine`, `runs`, `window`, `from`, `to` (seconds since 1970), `n` (1 to 500), `remote` (a remote of the model's), `system` (the events behind what it contains: those about an item of a projection it contains, or from one of its blocks or agents) |
 | `goal-crossings`, `goal-decisions` | `GET /api/loops/GOAL`: its crossings, each a link to the Events; its controller's decisions, alike when only their numbers differ | `goal` (needed) |
 | `attention` | `GET /api/status`: what asks for the owner | `show` (any of `waiting`, `off`, `housekeeping`, `suggestions`; all when left out), `system` (what is about a goal, agent or item it contains) |
-| `decisions` | `GET /api/inbox`: what waits on a person (what `ergostat inbox` lists), each a card answered in place (section 12o) | `kinds` (any of `action`, `person`, `advise`, `steptest`, `change`, `request`, `breaker`; all when left out), `system` (those about a block it contains, or a request about its parts; the top level: all) |
 | `legend` | nothing: how to read a view's drawing | `view` (needed: `dynamics`, `blocks` or `process`) |
 | `feedback-loops`, `control-loops` | `GET /api/graph`: the feedback loops of the stock and flow diagram; the control loops of the block diagram | `system` |
 | `quiet-systems` | `GET /api/systems`: each system whose every goal holds | none |
@@ -2159,7 +2160,7 @@ system, and the top level, has the default dashboards, drawn by ergostat's own p
 | Goals | `/goals`, `/SYSTEM/goals` | `attention` (`show: [off, housekeeping, suggestions]`), `quiet-systems`, `goals` (every column, `system: $system`) |
 | Agents | `/agents`, `/SYSTEM/agents` | `ladder`, `agents` (each `system: $system`), `daemons` |
 | Events | `/events`, `/SYSTEM/events` | `events` (`system: $system`): the events behind what it contains; the top level's, every event |
-| Inbox | `/inbox`, `/SYSTEM/inbox` | `decisions` (`system: $system`): every decision waiting on a person; `item-list` (`projection: ergostat.inbox`, `finished: show`, `header: true`): everything asked, newest first (section 12o) |
+| Inbox | `/inbox`, `/SYSTEM/inbox` | `ergostat.inbox`'s list page: `projection-summary`, `projection-states` and `item-list` (`finished: show`), each `projection: ergostat.inbox`: each decision waiting on a person a card, then everything asked, newest first (section 12o) |
 
 A name two things want in one scope goes to one of them by the fixed order above (**address-shadowed**, a finding);
 only a thing left with no address anywhere is an error (**address-unreachable**): the model does not load.
@@ -3670,12 +3671,15 @@ menu; each of its items is at `/K/REST`). The old `/items/K` and `/items?project
 kept (`/items?projection=K&state=S` becomes `/K?projection=K&state=S`), and every link to a whole projection points there: the item page's *Projection*, the Items page's
 bar titles, the process map's projection names, a side panel's set when it is a whole projection (a set with a state or a move
 keeps its `/items?projection=K&…` address and ends on the same page). It asks for that projection's items alone. Its sections, in
-order:
+order, every one a panel (section 4f: its default list dashboard is `projection-summary`, `projection-states`,
+`projection-now`, `projection-model`, `item-list`; nothing on it is drawn outside its panels, 2026-11-28, the owner):
 
-1. *The projection's bar*, drawn by the one `ProjectionBar` (`web/ui/src/components/items.tsx`) that draws each projection's bar on the Items page,
-   with the same markup apart from its heading's level (the page's `h1` here) and its disclosure's open state: the
-   title (its name small), id pattern, description, `finishes: S, …` or `lives on` (where that came from on hover),
-   its graph of states, the total, and `in SYSTEM` (why on hover). The graph of states (`StateGraph.tsx`; 2026-11-28, the
+1. *What it is* (`projection-summary`), drawn by the one `ProjectionBar` (`web/ui/src/components/items.tsx`) that
+   draws each projection's bar on the Items page, with the same markup apart from its heading's level (the page's `h1`
+   here) and its disclosure's open state: the title (its name small), id pattern, the total (and how many are not
+   finished), the system it is in as a link to that system (why on hover), and its description.
+   *Its states* (`projection-states`, usable on any dashboard): the graph of states; how it ends is the graph's own
+   marks (its ends boxed double, `finishes: S, …` or `lives on` on hover), no line of its own. The graph of states (`StateGraph.tsx`; 2026-11-28, the
    owner: the declared list with an arrow between neighbours drew moves that never happen) is the moves its items have
    made, not the order `values:` lists them in: a chip per state with how many items are in it now, an arrow from one
    state to another only when some item has made that move, with how many times (none for a move that never happened,
@@ -3683,13 +3687,15 @@ order:
    with their count, and its finishing states (`finished:`, `final:`) boxed double. It is laid out left to right in the
    order items pass through: each state after the states that lead into it, so a side exit (refused, superseded)
    branches off where it leaves, and a move back to an earlier state (a reopening) is a dashed back edge under the
-   chips; the states no item has reached follow in one muted line (*not reached yet*). The moves are the listing's
+   chips; a state no item has reached is drawn faded in its place, with no arrow (an end in the last column, any other
+   after the states declared before it). The moves are the listing's
    `moves` (`GET /api/items`, each projection's `[{from, to, n}]`, `from` null for an arrival, the most first), which
    the item index counts as it folds them (its `steps` table, a lease's hold taken out), so drawing it never reads the
    record; `ergostat item` prints them under each projection's counts (`made → checked 10, checked → superseded 7, …`).
    With no moves known (a draft, a record kept nowhere) the chips are drawn alone, with no arrows. The Items page draws these bars in
    every projection's list (`/items?view=list`, a search); its bare overview draws cards, whose name links here too. A chip
-   filters the list in place (`/K?state=S` in the address, a second click clears it), the same on both pages;
+   filters the list in place (`/K?state=S` in the address, a second click clears it), the same on both pages (a
+   `projection-states` panel on another dashboard leads to `/K?state=S`);
    the title links to the projection's page; in every projection's list the disclosure hides or shows that projection's list in place.
 2. *Now*: the projection's cumulative flow chart, drawn as the overview's: its state groups by default (from
    `/api/projections/K`'s `group`, the overview's rule), its legend at its right, and the overview's one switch, *State
@@ -9822,11 +9828,15 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   `--stats` (below).
 - The MCP tools `inbox` and `answer`, so the owner's Claude session can answer on their behalf when told to; its
   answers are recorded as from `owner via mcp`, counted apart, and never evidence for graduating a class.
-- The page: **the Inbox** (`/inbox`, and `/SYSTEM/inbox` for the entries about a system's parts), a default dashboard
-  of every system (nav item *Inbox*, with its count), made of the `decisions` panel (parameters `kinds`: only those
-  kinds of entry; `system`), editable in place like every page (saved as the dashboard named `inbox`). It lists
-  exactly what `ergostat inbox` lists (`GET /api/inbox`), each a card: its title linked to its page, what kind it is
-  and how long it waited (and its class's record), why in a line or two (an action's warning, the command it runs,
+- The page: **the Inbox** (`/inbox`, `/SYSTEM/inbox`), a default dashboard of every system (nav item *Inbox*, with
+  its count): the list page of the built-in projection `ergostat.inbox` (2026-11-28, the owner: an Inbox is a
+  projection's list), made of its `projection-summary` (the page's heading: *Inbox*, how many were asked and how many
+  wait), its `projection-states` and its `item-list` (`finished: show`), editable in place like every page (saved as
+  the dashboard named `inbox`). The decisions are its waiting items, one source: each entry `ergostat inbox` lists is
+  asked as an item when it first appears (below), carrying what its card is drawn from (`verbs`, `warn`, `run`,
+  `suggest`, `flow`, `unit`, `block`, `system`; one asked before these were kept is given its kind's answers), and the
+  list draws each waiting one as a card, oldest first, above the rest: its title linked to its page, what kind it is
+  and how long it waited, why in a line or two (an action's warning, the command it runs,
   the suggestion up the ladder), and its answers as buttons, every verb the CLI has: *Approve* (a breaker's
   *Reset*), *Deny* (it asks for a reason, labelled above its box: "Reason for denying (required)" for a modelling
   request, whose Deny waits for it, "(optional)" for the rest), and for a person's request a number box labelled with
@@ -9837,9 +9847,9 @@ always had, and is an event from whoever answered (the owner, unless `--as`):
   system." **The header's *N for you*** counts these decisions only (the same count as the page) and links to the
   Inbox. A fault (a sensor failing, a daemon down, a dead letter) is never a decision: it is not counted there and not
   on the Inbox; the header says *N sensor(s) failing* on its own, linked to the diagram around the part. The item
-  pages keep their own buttons; the Overview's attention panel shows the same cards. Below the cards, the Inbox lists
-  **everything it asked**, newest first, answered or not (an `item-list` panel of `ergostat.inbox`, finished shown,
-  its graph of states above it): what was asked, its state, who answered, when, and their note.
+  pages keep their own buttons; the Overview's attention panel shows the same cards. Below the cards, the same list has
+  **everything it asked**, newest first, answered or not: what was asked, its state, who answered, when, and their
+  note.
 
 **Its history: the built-in projection `ergostat.inbox`** (`ergostat/inbox/history.py`), one item per thing asked of a
 person, its id the entry's (`ergostat.inbox/change/ca4c2e9f`, `ergostat.inbox/person/reviewer@41`), so its page shows

@@ -33,13 +33,13 @@ export const AGENTS_PANELS: PanelDef[] = [
   { panel: "daemons", id: "daemons", title: "Daemons" },
 ].map(full);
 
-/** A system's Inbox: every decision waiting on a person (what `ergostat inbox` lists), each answered in place; below,
- *  everything it asked, newest first, answered or not (the built-in projection ergostat.inbox, its graph of states
- *  above it). */
+/** A system's Inbox: the built-in projection ergostat.inbox's list page (what it is, its graph of states, its items):
+ *  each decision waiting on a person (what `ergostat inbox` lists) a card answered in place, then everything it asked
+ *  before, answered or not. */
 export const INBOX_PANELS: PanelDef[] = [
-  { panel: "decisions", id: "decisions", title: "Waiting for you", system: "$system" },
-  { panel: "item-list", id: "history", title: "Everything asked, newest first", projection: "ergostat.inbox", finished: "show",
-    header: true },
+  { panel: "projection-summary", id: "summary", projection: "ergostat.inbox" },
+  { panel: "projection-states", id: "states", projection: "ergostat.inbox" },
+  { panel: "item-list", id: "items", title: "Waiting for you, then everything asked", projection: "ergostat.inbox", finished: "show" },
 ].map(full);
 
 /** A system's Events: those behind what it contains (its projections' items, its blocks' and agents' own). */
@@ -70,8 +70,11 @@ export const ITEM_PANELS: PanelDef[] = [
   { panel: "item-changes", id: "changes" },
 ].map((d) => full({ ...d, item: "$item" }));
 
-/** A projection's page: its state now, its place in the model, its definition, then its items. */
+/** A projection's page: what it is (its name, count, description, system), its graph of states, its state now, its
+ *  place in the model, then its items. */
 export const PROJECTION_PANELS: PanelDef[] = [
+  full({ panel: "projection-summary", id: "summary", projection: "$projection" }),
+  full({ panel: "projection-states", id: "states", projection: "$projection" }),
   { panel: "projection-now", id: "now", title: "Now", size: "m", fit: true, projection: "$projection" },
   { panel: "projection-model", id: "model", title: "In the model", size: "m", fit: true, projection: "$projection" },
   full({ panel: "item-list", id: "items", title: "Items", projection: "$projection" }),

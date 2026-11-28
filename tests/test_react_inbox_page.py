@@ -1,5 +1,5 @@
-"""The Inbox page (/inbox, a default dashboard of the decisions panel): exactly what `ergostat inbox` lists, each a card
-answered on the page (approve a change, deny an action with a reason, a person's number done); the header's "N for
+"""The Inbox page (/inbox, a default dashboard: ergostat.inbox's list page, its summary, states and list panels): exactly
+what `ergostat inbox` lists, each a waiting item of ergostat.inbox drawn as a card answered on the page (approve a change, deny an action with a reason, a person's number done); the header's "N for
 you" counts those decisions only and links here; a failing sensor is a fault, never "for you"."""
 
 from __future__ import annotations
@@ -50,8 +50,12 @@ def test_the_inbox_lists_what_ergostat_inbox_lists_and_the_header_links_there(si
     assert "around=" in pg.locator("#sensors-failing").get_attribute("href")     # the diagram around it, not the side list
     assert pg.locator("#nav [data-inbox-count]").inner_text().strip() == str(len(ids))
     pg.locator("#waits").click()
-    pg.wait_for_selector(".wait-card", timeout=WAIT)
+    pg.wait_for_selector(".panel-kind-item-list .wait-card", timeout=WAIT)          # the cards: the list's waiting items
     assert pg.locator(".wait-card").evaluate_all("xs => xs.map(x => x.dataset.row)") == ids
+    summary = pg.locator(".panel-kind-projection-summary .projection-bar[data-projection='ergostat.inbox']")
+    assert summary.locator("h1").inner_text().startswith("Inbox")                 # the page's heading: a panel
+    assert f"{len(ids)} not finished" in summary.inner_text()                      # how many wait
+    assert pg.locator(".panel-kind-projection-states .stbox[data-state=waiting] .n").inner_text() == str(len(ids))
     assert pg.locator('[data-row="sensor probe.main"]').count() == 0              # a fault is not on the Inbox
     person = pg.locator('.wait-card[data-kind="person"]')
     assert "Jobs done, along reviewed (number)" in person.inner_text()
@@ -110,8 +114,9 @@ def test_a_past_decision_is_listed_below_with_its_answer(site, browser):
     answer.answer(p, p.model.spec, es["advise"]["id"], "deny", note="not this week")
     pg = opened(browser, url + "/inbox")
     pg.wait_for_selector(".wait-card", timeout=WAIT)
+    pg.locator(".panel-kind-projection-states .projection-states[data-projection='ergostat.inbox'] .stbox").first.wait_for(
+        timeout=WAIT)                                                             # its graph of states: a panel above
     hist = pg.locator(".panel-kind-item-list")
-    hist.locator(".projection-bar[data-projection='ergostat.inbox']").wait_for(timeout=WAIT)   # its graph of states
     row = hist.locator("tr", has_text="not this week")
     row.wait_for(timeout=WAIT)
     assert "denied" in row.inner_text() and "owner" in row.inner_text()
