@@ -4,7 +4,8 @@ that act for it and onward, and the first place it stops said in one line, with 
 Each block that acts for the goal (its ``goal:``; on a model without blocks, the agents of its valves), in turn:
 it has never run, or not for several of its runs; its last run failed (its note); it is capped by its day's spend
 (the modelling template's ``--daily``); its last runs produced nothing (no opening, command, decision, event or
-proposal, nor any change to the model it made), with what its last run said (the last line of its own run log).
+proposal, nor any change to the model it made), with what its last run said (the last line of its ``said``, on its
+end event: its run's object's, ``ergostat.run``; a run recorded before ``said`` was kept, its own run log's).
 A block that makes changes to the model (modelling's drafter, modeller, fixer, improver, redesigner) is followed
 through them, from the changes store (the item index's ``ergostat.model-change`` table, the day's), counted by what
 became of each: waiting for the owner, with the judge or the reviewer, written, sent back or rejected by the
@@ -14,7 +15,7 @@ valve opened), the stock: whether it moved toward its setpoint over the window.
 Said at once, as soon as the goal is off: these are the loop's steps as they stand, not a verdict that waits for
 record (the saturation suggestion, ``diagnosis_in``, does). Reads only what is kept: the snapshot's agents (each
 block's runs and its newest run, from the item index), its last three runs, the changes table, the spend ledger,
-one run log's tail. Never a scan of the record."""
+the last run's ``said`` (or an older run's log's tail). Never a scan of the record."""
 
 from __future__ import annotations
 
@@ -24,6 +25,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from .durations import human
+from .spec.runitems import RUN
 
 DAY = 86400.0
 RUNS = 3                                     # the last runs read for whether a block produced anything
@@ -59,6 +61,12 @@ def agent_link(name: str) -> str:
     return f"/agents/{quote(name)}"
 
 
+def run_link(name: str, end: dict | None) -> dict:
+    """A link to the run an end event closed (its ``ergostat.run`` object's page), when it names one."""
+    run = (end or {}).get("causedby")
+    return {"link": f"/{RUN}/{quote(name)}/{quote(str(run))}"} if run else {}
+
+
 def changes_link(step: str, by: list[str]) -> str:
     """The changes in that step, listed: the ``ergostat.model-change`` items in its state, searched for their maker."""
     q = f"state={STATE_OF[step]}&finished=show"
@@ -76,8 +84,12 @@ def actors(spec, m, name: str, lp: dict) -> list[str]:
 
 
 def said_by(p, run: dict | None) -> str:
-    """What a run said last: the last plain line of its own run log (``logs/runs/...``), read from its tail only."""
-    rel = ((run or {}).get("data") or {}).get("log")
+    """What a run said last: the last line of its ``said`` (its end event's, as its run's object holds it); for a run
+    recorded without one, the last plain line of its own run log (``logs/runs/...``), read from its tail only."""
+    d = (run or {}).get("data") or {}
+    if isinstance(d.get("said"), str) and d["said"].strip():
+        return d["said"].strip().splitlines()[-1].strip()[:300]
+    rel = d.get("log")
     if not rel:
         return ""
     try:
@@ -210,7 +222,7 @@ def block_step(p, snap: dict, m, spec, name: str, now: float, made_changes: int 
     ago = human(max(1.0, now - last["time"]))
     if a.get("failing"):
         note = data.get("note") or (f"exit {data['exit']}" if data.get("exit") is not None else "failed")
-        return {**out, "stuck": True, "says": f"the {name}'s last run failed ({ago} ago): {note}"}
+        return {**out, **run_link(name, last), "stuck": True, "says": f"the {name}'s last run failed ({ago} ago): {note}"}
     if c := capped(p, spec, name, now):
         return {**out, "stuck": True, "says": c}
     if ag is not None and (ag.every or ag.cron) and _missed(ag, last["time"], now):
@@ -225,7 +237,8 @@ def block_step(p, snap: dict, m, spec, name: str, now: float, made_changes: int 
         k = len(runs)
         said = said_by(p, runs[-1])
         what = "proposed nothing" if made_changes is not None else "produced nothing"
-        return {**out, "stuck": True, "says": (f"the {name}'s last run {what}" if k == 1 else f"the {name}'s last {k} runs {what}")
+        return {**out, **run_link(name, runs[-1]), "stuck": True,
+                "says": (f"the {name}'s last run {what}" if k == 1 else f"the {name}'s last {k} runs {what}")
                 + (f": {said}" if said else "")}
     return {**out, "stuck": False, "says": f"the {name} ran {ago} ago"}
 

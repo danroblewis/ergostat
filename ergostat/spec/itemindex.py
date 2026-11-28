@@ -72,7 +72,10 @@ from ..store import damaged
 from . import codec, emit, itemnumbers, projections
 from .about import parts_named
 from .items import SNAPSHOT, TRANSCRIPT_TYPES, Item, fold, projections_of, reads_all, routes, text_of
+from . import runitems
 from .relations import links_of
+from .runitems import MARK as RUN_MARK
+from .runitems import RUN
 
 VERSION = 11                # of the index's layout: a different one is rebuilt (4: items.text; 5: the @about links;
 #                             6: the numbers, or what the status reads, on the two branches that each took 6;
@@ -441,6 +444,9 @@ class Index:
         their events by item id alone, by the id's projections, kept."""
         if str(e.get("source") or "").startswith("projection:"):   # a projection's own (SPEC §5a): read when named
             return routes(self.spec, e) if self.kinds else []
+        if str(e.get("item") or "").startswith(RUN + "/"):          # a run's: only what is derived (runitems.py)
+            k = self.kinds.get(RUN) if self.kinds else None
+            return [(k, e["item"])] if k is not None and e.get(RUN_MARK) else []
         if self.kinds and all(k.query is None and k.by_item for k in self.kinds.values()):
             item = e.get("item")
             return [(k, item) for k in self.kinds_of(item) if k is None or k.handlers is None or k.keys_of(e)] \
@@ -581,7 +587,15 @@ class Index:
         if len(got) >= CHUNK:                             # as many of the status's own: up to the last of them
             top, finished = got[-1]["seq"], False
             new = [e for e in new if e["seq"] <= top]
-        self._fold(new)
+        runs = [e for e in other if e["type"] in runitems.TYPES] if RUN in (self.kinds or {}) else []
+        if runs and last - top > CHUNK:                     # far behind (built again): only what the cap would keep
+            floor = self._run_floor(events, last)
+            runs = [e for e in runs if e["time"] - float((e.get("data") or {}).get("seconds") or 0)
+                    >= floor.get(e.get("item"), -math.inf) - 1]
+        runs = runitems.derived(runs)                       # (each run: its events, read as its own)
+        self._fold(new + runs)
+        if runs:
+            self._cap_runs({e["data"]["block"] for e in runs})
         status = {e["seq"]: e for e in [e for e in new if not every or "/" in str(e.get("item") or "")] + other}
         projections.follow(self, [status[q] for q in sorted(status)])
         self._set_meta(seq=top)
@@ -600,9 +614,18 @@ class Index:
     def _reconcile(self, events) -> None:
         """After events were taken out: an item none of whose events is left is forgotten."""
         live = events.item_ids()
-        keyed = [table_of(k) for k, x in self.kinds.items() if not x.by_item]     # (keyed by data: not the record's ids)
+        keyed = [table_of(k) for k, x in self.kinds.items() if not x.by_item or k == RUN]   # (not the record's ids)
         gone = [(rid,) for t in self.tables() if t not in keyed
                 for rid, id in self.db.execute(f"select rid, id from {t}") if id not in live]   # (every row of it)
+        if RUN in self.kinds:                               # a run whose start is gone (pruned, loose): forgotten
+            oldest = events.query(n=None, type="agent.started", first=1)
+            t = table_of(RUN)
+            gone += [(rid,) for (rid,) in (self.db.execute(f"select rid from {t} where first < ?", (oldest[0]["time"],))
+                                           if oldest else self.db.execute(f"select rid from {t}"))]
+        self._take_out(gone)
+
+    def _take_out(self, gone: list[tuple]) -> None:
+        """Items ``gone`` (their rows' numbers) taken out of the index: their moves, links, numbers and rows."""
         if gone:
             from ..itemmetrics import carry
             carry(self.db, [r[0] for r in gone], self.name, time.time())   # what they counted, kept (and their move to (gone))
@@ -617,6 +640,29 @@ class Index:
             for id in [i for i, (it, *_) in self.cache.items() if getattr(it, "rid", None) in dead]:
                 self.cache.pop(id, None)
 
+    def _run_floor(self, events, last: int) -> dict[str, float]:
+        """Each block's start time of its ``KEPT``-th newest run in the record as it is now (``last``): a run started
+        before it is never folded while the index is built again, since the cap would take it out at once."""
+        if getattr(self, "_floor", (None,))[0] != last:
+            floor = {}
+            for b in getattr(self.spec, "blocks", None) or {}:
+                got = events.query(n=runitems.KEPT, type="agent.started", item=b)
+                if len(got) >= runitems.KEPT:
+                    floor[b] = got[0]["time"]
+            self._floor = (last, floor)
+        return self._floor[1]
+
+    def _cap_runs(self, blocks) -> None:
+        """Each of these blocks' newest ``runitems.KEPT`` runs kept in the index, the older taken out (their page still
+        reads them from the record by id, while their events are kept): a busy block's runs cost the index a bounded
+        number of rows, whatever its record holds. Its id range alone is read, never the whole table."""
+        t, gone = table_of(RUN), []
+        for b in blocks:
+            pre = runitems.id_of(b, "")
+            gone += self.db.execute(f"select rid from {t} where id >= ? and id < ? order by first desc limit -1 offset ?",
+                                    (pre, pre[:-1] + chr(ord(pre[-1]) + 1), runitems.KEPT)).fetchall()
+        self._take_out(gone)
+
     def _fold(self, new: list[dict]) -> None:
         by: dict[tuple, list[dict]] = {}                     # an item: (projection, id), and its events
         for e in new:
@@ -626,7 +672,7 @@ class Index:
             return
         per: dict[tuple, int] = {}                           # (type, source, minute): events counted (itemmetrics.py)
         for e in new:
-            if e["type"] != SNAPSHOT:
+            if e["type"] != SNAPSHOT and not e.get(RUN_MARK):       # (a run's derived events: counted as their own)
                 k = (e["type"], e.get("source") or "", math.ceil(e["time"] / 60) * 60.0)
                 per[k] = per.get(k, 0) + 1
         self.db.executemany("insert into event_counts(type, source, at, n) values (?,?,?,?) "
@@ -840,10 +886,15 @@ class Index:
         """Whether any item has an event after ``t`` (else nothing need be left out as of then)."""
         return t is not None and self.db.execute("select 1 from items where newest > ? limit 1", (t,)).fetchone() is not None
 
-    def _where(self, kind: str | None, states=None, until: float | None = None, words=()) -> tuple[str, list]:
+    def _where(self, kind: str | None, states=None, until: float | None = None, words=(), pre: str | None = None) \
+            -> tuple[str, list]:
         """``kind`` (None: any; ``""``: items of no kind), in ``states`` (None: any; ``""`` among them: no state), whose
-        text holds every one of ``words`` (casefolded: ``items.words``)."""
+        text holds every one of ``words`` (casefolded: ``items.words``), whose id begins ``pre`` (a range of the id's
+        index: ``ItemKind.prefix``)."""
         sql, args = [], []
+        if pre:
+            sql.append("id >= ? and id < ?")
+            args += [pre, pre[:-1] + chr(ord(pre[-1]) + 1)]
         if words and self.db.execute("select 1 from items where text is null limit 1").fetchone():
             self._set_meta(version=0)                       # a row without its text (items_textless: one lookup) is
             #                                                 never read as no match: rebuilt
@@ -919,16 +970,17 @@ class Index:
         return {self.name(k) or "": (int(n_in or 0), n) for k, n_in, n in rows}
 
     @_healing
-    def count(self, kind: str | None, states=None, until: float | None = None, words=()) -> int:
-        w, a = self._where(kind, states, until, words)
+    def count(self, kind: str | None, states=None, until: float | None = None, words=(), pre: str | None = None) -> int:
+        w, a = self._where(kind, states, until, words, pre)
         return self.db.execute(f"select count(*) from {self.rows(kind)}{w}", a).fetchone()[0]
 
     @_healing
     def items(self, kind: str | None = None, states=None, until: float | None = None, n: int | None = None,
-              offset: int = 0, moves: bool = True, ids=None, has: str | None = None, words=()) -> list[Item]:
+              offset: int = 0, moves: bool = True, ids=None, has: str | None = None, words=(),
+              pre: str | None = None) -> list[Item]:
         """Items, the latest first (by their last event): ``n`` of them from ``offset``, with their moves;
-        among ``ids``, with ``has`` in their id, or holding every one of ``words``, when given."""
-        w, a = self._where(kind, states, until, words)
+        among ``ids``, with ``has`` in their id, holding every one of ``words``, or whose id begins ``pre``, when given."""
+        w, a = self._where(kind, states, until, words, pre)
         if has is not None:
             w = (w + " and " if w else " where ") + "instr(id, ?) > 0"
             a = [*a, has]

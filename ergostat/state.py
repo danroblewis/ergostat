@@ -21,6 +21,7 @@ from .spec.goal_per import says as per_says
 from .spec.goal_per import worst as per_worst
 from .spec.ir import OWN_TEMPLATES, upkeep_of
 from .spec.observer import opted, shown_stale
+from .spec.runitems import RUN
 
 WINDOW = 3600.0
 STALE_RUNS = 3          # a reading older than this many of its agent's periods is stale
@@ -996,9 +997,12 @@ def attention(snap: dict, running: bool = True, model=None) -> list[dict]:
                         "says": f"{a['refused']} lines refused "
                         f"(a part it does not fill, or one of ergostat's own event types: ergostat event --type agent.refused)"})
         if a.get("unread"):
-            out.append({"level": "warn", "what": f"agent {name}", "link": _agent_link(name),
+            run = (a.get("last") or {}).get("causedby")      # the run they came from: its object (SPEC §9.1)
+            where = f"its runs' logs (its last run: {RUN}/{name}/{run})" if run else "its runs' logs"
+            out.append({"level": "warn", "what": f"agent {name}",
+                        "link": f"/{RUN}/{name}/{run}" if run else _agent_link(name),
                         "says": f"{a['unread']} lines looked meant for ergostat but "
-                        f"could not be read (broken JSON, or naming no part or event); they are in its log"})
+                        f"could not be read (broken JSON, or naming no part or event); they are in {where}"})
         if a.get("contradicted"):
             n = a["contradicted"]
             out.append({"level": "bad", "what": f"agent {name}", "says": f"{n} claim{'s' if n > 1 else ''} it made "

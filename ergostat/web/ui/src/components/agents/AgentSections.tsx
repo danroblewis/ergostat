@@ -1,10 +1,12 @@
-import type { ReactNode } from "react";
-import { ago, bytesText, costText, cpuText, op, tokensText } from "../../lib/format";
+import { useState, type ReactNode } from "react";
+import { ago, bytesText, costText, cpuText, dur, op, tokensText } from "../../lib/format";
 import { goalWord } from "../../lib/goals";
 import { AgentLink } from "../links";
 import { Code, Markdown } from "../Markdown";
-import { diagramHref } from "../../lib/hrefs";
-import { AppLink, Dl, Muted, Rich, StatusWord } from "../ui";
+import { diagramHref, itemHref } from "../../lib/hrefs";
+import { Pager } from "../controls";
+import { usePanelApi } from "../panels/usePanelApi";
+import { AppLink, Async, Dl, Muted, Rich, StatusWord } from "../ui";
 import { agentTally, rolesText } from "./agentParts";
 import "./agents.css";
 
@@ -186,14 +188,68 @@ export function Place({ a, name, loops }: { a: any; name: string; loops: any }) 
 }
 
 /** What it did in the window: its runs' tally, what they cost, and its last ten runs, newest first. */
-export function Runs({ a, name }: { a: any; name: string }) {
-  const last = (a.recent || []).slice(-10).reverse();
+/** A run's object (the built-in projection ergostat.run): its id, from its block and its run's id. */
+export const RUN = "ergostat.run";
+export const runId = (block: string, run: string) => `${RUN}/${block}/${run}`;
+export const runHref = (block: string, run: string) => itemHref(runId(block, run));
+
+/** Its runs, each an object of ergostat.run, newest first, a page at a time: when, how it ended, how long, what it moved,
+ *  cost, what it said; each links to its run's page (its fields, its log while kept, its session). */
+function RunList({ a, name, every, refreshKey }: { a: any; name: string; every?: number | null; refreshKey?: unknown }) {
+  const [at, setAt] = useState({ offset: 0, n: 10 });
+  const got = usePanelApi<any>("items", { projection: RUN, where: `block:${name}`, n: at.n, offset: at.offset, eta: 0 }, every, refreshKey);
+  const outcome = (i: any, run: string, f = i.fields || {}) => i.state === "running" ? <span className="s-open">running</span>
+    : (a.ended || {})[run]?.how === "nack" ? <span className="s-open">refused</span>
+    : i.state === "failed" ? <><span className="s-off">{f.outcome || "failed"}</span>{f.error && <Muted>{`: ${f.error}`}</Muted>}</>
+      : <><span className="status">{f.outcome === "stopped" ? "stopped" : "done"}</span>{f.note && <Muted>{`: ${f.note}`}</Muted>}</>;
+  return (
+    <Async state={got}>
+      {(d) => {
+        const its: any[] = d.items || [];
+        if (!its.length) return <p className="muted">No run of it is kept in the record.</p>;
+        const pager = (where: "top" | "foot") => d.total > at.n || at.offset ? (
+          <Pager at={where} total={d.total} offset={d.offset ?? at.offset} shown={its.length} size={at.n} sizes={[10, 25, 100]} what="runs"
+            onPage={(pg) => setAt({ ...at, offset: (pg - 1) * at.n })} onSize={(n) => setAt({ offset: 0, n })} />
+        ) : null;
+        return (
+          <>
+            {pager("top")}
+            <div className="table-wrap runs-table">
+              <table>
+                <caption className="sr-only">{`Runs of ${name}, newest first`}</caption>
+                <thead><tr><th>when</th><th>item</th><th>outcome</th><th className="num">took</th><th>moved</th><th>outward actions asked</th><th className="num">cost</th><th className="num">CPU</th><th className="num">memory</th><th>said</th></tr></thead>
+                <tbody>
+                  {its.map((i: any) => {
+                    const f = i.fields || {}, run = String(i.id).split("/").pop() || "", asked = (a.asked || {})[run] || [];
+                    const said = String(f.said || "").split("\n").filter(Boolean).pop() || "";
+                    return (
+                      <tr key={i.id}>
+                        <td className="nowrap"><AppLink to={itemHref(i.id)} title={`run ${run}`}>{ago(f.started ?? i.first)}</AppLink></td>
+                        <td className="cell">{f.item ? (String(f.item).includes("/") ? <AppLink to={itemHref(f.item)}>{f.item}</AppLink> : f.item) : <Muted>none</Muted>}</td>
+                        <td className="cell">{outcome(i, run)}</td>
+                        <td className="num nowrap">{f.seconds != null ? dur(f.seconds) : "–"}</td>
+                        <td className="cell">{f.moved || <Muted>–</Muted>}</td>
+                        <td className="cell">{asked.length ? asked.map((x: any, j: number) => <span key={x.id}>{j ? ", " : ""}<AppLink to={itemHref(x.id)} title={x.state}>{x.action || x.id}</AppLink></span>) : <Muted>none</Muted>}</td>
+                        <td className="num nowrap" title={f.cost ? `${f.cost}${f.ai_model ? ", " + f.ai_model : ""}` : ""}>{costText({ cost_usd: f.cost_usd, cost: f.cost, runs: 1 }, a)}{f.cost && f.cost !== "reported" && <Muted> est.</Muted>}</td>
+                        <td className="num">{cpuText(f.cpu)}</td>
+                        <td className="num">{bytesText(f.memory)}</td>
+                        <td className="cell said" title={f.said || ""}>{said ? (said.length > 120 ? said.slice(0, 117) + "..." : said) : <Muted>nothing</Muted>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {pager("foot")}
+          </>
+        );
+      }}
+    </Async>
+  );
+}
+
+export function Runs({ a, name, every, refreshKey }: { a: any; name: string; every?: number | null; refreshKey?: unknown }) {
   const t = a.use?.totals;
-  const costOf = (e: any, d = e.data) => ({ cost_usd: d.ai ? d.ai.cost_usd : d.cost_usd, cost: d.ai ? d.ai.cost : d.cost_usd != null ? "reported" : null,
-    model: d.ai?.model, tokens: d.ai?.tokens?.total, cpu: d.resources?.cpu, memory: d.resources?.memory_peak, exit: d.exit, note: d.note, failed: e.type === "agent.failed" });
-  const outcome = (e: any) => e.type === "agent.failed" ? <><span className="s-off">failed</span><Muted>{`: ${e.data.note || "no reason given"}`}</Muted></>
-    : (a.ended || {})[e.causedby]?.how === "nack" ? <><span className="s-open">refused</span><Muted>{`: ${a.ended[e.causedby].why || e.data.note || "no reason given"}`}</Muted></>
-      : <><span className="status">done</span>{e.data.note && <Muted>{`: ${e.data.note}`}</Muted>}</>;
   return (
     <>
       <Dl rows={agentTally(a)} />
@@ -203,29 +259,9 @@ export function Runs({ a, name }: { a: any; name: string }) {
           <p className="note use-totals">{`${t.runs} runs: ${costText(t, a)}${t.cost && t.cost !== "reported" ? ` (${t.cost}: from tokens, by a price table)` : ""}, ${tokensText(t.tokens)} tokens, ${cpuText(t.cpu)} CPU, at most ${bytesText(t.memory_peak)} in one run.`}</p>
         </>
       )}
-      <h3>Recent runs</h3>
-      <div className="table-wrap runs-table">
-        <table>
-          <caption className="sr-only">{`Recent runs of ${name}, newest first`}</caption>
-          <thead><tr><th>when</th><th>item</th><th>outcome</th><th>outward actions asked</th><th className="num">cost</th><th className="num">CPU</th><th className="num">memory</th></tr></thead>
-          <tbody>
-            {last.map((e: any) => {
-              const r = costOf(e), asked = (a.asked || {})[e.causedby] || [];
-              return (
-                <tr key={e.id}>
-                  <td className="nowrap">{ago(e.time)}</td>
-                  <td className="cell">{e.data.item ? (String(e.data.item).includes("/") ? <AppLink to={`/item/${encodeURIComponent(e.data.item)}`}>{e.data.item}</AppLink> : e.data.item) : <Muted>none</Muted>}</td>
-                  <td className="cell">{outcome(e)}</td>
-                  <td className="cell">{asked.length ? asked.map((x: any, i: number) => <span key={x.id}>{i ? ", " : ""}<AppLink to={`/item/${encodeURIComponent(x.id)}`} title={x.state}>{x.action || x.id}</AppLink></span>) : <Muted>none</Muted>}</td>
-                  <td className="num nowrap" title={r.cost ? `${r.cost}${r.model ? ", " + r.model : ""}` : ""}>{costText({ ...r, runs: 1 }, a)}{r.cost && r.cost !== "reported" && <Muted> est.</Muted>}</td>
-                  <td className="num">{cpuText(r.cpu)}</td>
-                  <td className="num">{bytesText(r.memory)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <h3>Its runs</h3>
+      <RunList a={a} name={name} every={every} refreshKey={refreshKey} />
+      <p className="note"><AppLink to={`/${RUN}?q=${encodeURIComponent(name)}`}>Every run, of every agent</AppLink></p>
     </>
   );
 }

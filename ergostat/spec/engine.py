@@ -46,7 +46,7 @@ from ..leases import gone as run_gone
 from ..library import bounds, reap
 from ..reports import crash as reports_crash
 from ..reports import lines as report_lines
-from . import adopt, runrecord, stream, triggers
+from . import adopt, runitems, runrecord, stream, triggers
 from . import blocks as bl
 from .ir import Block, Ref, Sensor, Spec
 from .legacy import sensor_name, valve_name
@@ -65,6 +65,7 @@ SWEEP = 5.0                 # how often the owner's messages are swept: left rec
 OUTCOMES_EVERY = 30.0       # how often the outcomes of the recipes' uses are found again (SPEC §12j)
 SOURCE = "ergostat"
 STOPPED_BY_OWNER = "stopped as the owner asked"   # ergostat block NAME --stop: not the block's failure
+SAID_TAIL = 4000                                  # characters of a run log's end read for what the run said (its `said`)
 STOP_ASKED = "block.stop.requested"
 RESTART_ASKED = "daemon.restart.requested"
 AI_COMMAND = os.environ.get("ERGOSTAT_AI", "claude -p")
@@ -1009,7 +1010,9 @@ class Engine:
         ev = self.p.events
         commander = (ctx.get("command") or {}).get("from")          # caused by the decision or run that commanded it
         cause = cause or (self.cause.get(commander) if commander else None)
+        from ..claims.record import rung_of
         data = {"trigger": why, "command": ctx.get("command"), "model": version,
+                **({"rung": r} if (r := rung_of(spec, b.name)) else {}),   # (its run's object shows it: SPEC §9.1)
                 **({"event_seq": ctx["event"].get("seq")} if isinstance(ctx.get("event"), dict) else {}),
                 **self.triggers.of_run(b, ctx, cause),          # what led to it, carried (SPEC §9.3)
                 **({"timeout": b.timeout} if b.timeout else {}),
@@ -1128,7 +1131,7 @@ class Engine:
             got = costs_ai.expand(usage, got)                   # (what its AI sessions cost, taken as they say it)
             logged(got, n)
             said.lines(got)
-        lf, back, tail, unread = rl.file if rl else None, None, "", ""
+        lf, back, tail, unread, says = rl.file if rl else None, None, "", "", ""
         kept_end = None                                          # a kept run's files and keeper, let go once it ended
         try:
             if rl is None:                                       # (no log of its own: not started)
@@ -1228,6 +1231,7 @@ class Engine:
                 from ..repair.capture import TAIL, clip
                 try:                                             # (read first, whatever the block log's fate)
                     tail = clip(rl.tail(TAIL + 1)) if note or (code == 0 and "ergostat.failure" in spec.items) else ""
+                    says = runitems.said_of(tail or rl.tail(SAID_TAIL))   # what it said, on its end (SPEC §9.1)
                 except Exception as e:
                     tail = f"(its run log {rl.rel} could not be read: {type(e).__name__}: {e})\n"
                     unread = f"its run log could not be read: {type(e).__name__}: {e}"
@@ -1249,7 +1253,7 @@ class Engine:
         data = {"exit": code, "seconds": round(time.time() - started, 3), "why": why, **said.counts,
                 **({"daemon": b.params["daemon"]} if b.params.get("daemon") else {}),
                 **({"log": rl.rel} if rl else {}),
-                **({"item": item} if item else {}),
+                **({"item": item} if item else {}), **({"said": says} if says else {}),
                 **({"note": note} if note else {}), **({"moved": said.moved} if said.moved else {}),
                 **({"commanded": ctx["command"]["amount"]} if "command" in ctx else {}), "model": version,
                 **({"model_now": self.version} if self.version != version else {}),   # it ran across a change

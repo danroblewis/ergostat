@@ -33,7 +33,7 @@ from ..compute.worker import keeper
 from ..costs import ai as costs_ai
 from ..costs import record as costs_record
 from ..library import bounds
-from . import runrecord, stream
+from . import runitems, runrecord, stream
 
 WAIT = 3.0              # seconds a run gone with no exit written waits for its keeper's last write, then reads killed
 SOURCE = "ergostat"
@@ -387,8 +387,16 @@ def settle(eng, b, begun: dict, said, usage, proc: Adopted) -> dict:
             store.LINE.reset(token)
     said.tally()
     d0, rec = begun.get("data") or {}, proc.rec if isinstance(proc.rec, dict) else {}
+    says = ""
+    if _log(b, rec):                                     # what it said: its run log's last lines (SPEC §9.1)
+        try:
+            with open(eng.p.dir / rec["log"], "rb") as fh:
+                fh.seek(max(0, os.fstat(fh.fileno()).st_size - 16000))
+                says = runitems.said_of(fh.read().decode("utf-8", "replace")[-4000:])
+        except OSError:
+            pass
     data = {"exit": code, "seconds": round(max(0.0, at - begun["time"]), 3), "why": d0.get("trigger"), **said.counts,
-            **({"log": rec["log"]} if _log(b, rec) else {}),
+            **({"log": rec["log"]} if _log(b, rec) else {}), **({"said": says} if says else {}),
             **({"item": d0["item"]} if d0.get("item") else {}), **({"note": note} if note else {}),
             **({"moved": said.moved} if said.moved else {}), "model": d0.get("model"), "taken_up": True,
             **({"ai": ai} if (ai := usage.record()) else {})}

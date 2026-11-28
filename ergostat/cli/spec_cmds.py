@@ -569,9 +569,13 @@ def run_now(p, b, args) -> int:
              ": moved nothing") + (f" ({d['note']})" if d.get("note") else ""))
     for r in p.events.query(n=5, item=b.name, type="agent.refused", since=last[-1]["time"] - 60 if last else None):
         print(c(f"refused: {r['data']['why']}", "warn"))
-    if not moved:                                         # why it did nothing: what it said in its log
-        for line in said_lines(p, d.get("log")):
+    if not moved:                                         # why it did nothing: what it said (its run's `said`)
+        lines = [x for x in str(d.get("said") or "").splitlines() if x.strip()][-3:] or said_lines(p, d.get("log"))
+        for line in lines:
             print(f"said: {line}")
+    if last and last[-1].get("causedby"):                 # its run, an object: ergostat item ergostat.run/BLOCK/RUN
+        from ..spec.runitems import id_of
+        print(c(f"its run: {id_of(b.name, last[-1]['causedby'])}", "dim"))
     from ..runner import log_path
     print(c(f"its log: {log_path(p, b.name)}", "dim"))
     return 1 if last and last[-1]["type"] == "agent.failed" else 0

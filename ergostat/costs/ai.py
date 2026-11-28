@@ -90,6 +90,7 @@ class Usage:
     def __init__(self, model: str | None = None):
         self.model = model                    # the model the block asked for: for tokens that name none
         self.parts: list[dict] = []
+        self.items: list[str] = []            # the session items its sessions said they were (``session/ROLE-RUN``)
 
     def add_result(self, d: dict, model: str | None = None) -> None:
         self.parts.append(part_of_result(d, model or self.model))
@@ -138,6 +139,7 @@ class Usage:
                 "tokens": {**toks, "total": sum(toks[k] for k in TOKENS)}, "model": main,
                 **({"models": models} if models else {}), "sessions": len(self.parts),
                 "turns": sum(int(p.get("turns") or 0) for p in self.parts),
+                **({"items": list(self.items)} if self.items else {}),
                 **({"unpriced": True} if "unpriced" in {p["how"] for p in self.parts} and how != "unpriced" else {})}
 
 
@@ -163,6 +165,8 @@ def expand(usage: Usage, got: list[str]) -> list[str]:
             continue
         if isinstance(obj, dict) and obj.get("event") in ("session.ran", "session.failed"):
             usage.add_session(obj.get("data"))
+            if isinstance(obj.get("item"), str) and obj["item"] not in usage.items and len(usage.items) < 20:
+                usage.items.append(obj["item"])         # (its run's object links it: SPEC §9.1)
         out.append(raw)
     return out
 

@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { ago, bytesText, costText, cpuText, op, tokensText, usd, windowNote } from "../../lib/format";
-import { agentHref } from "../../lib/hrefs";
+import { agentHref, itemHref } from "../../lib/hrefs";
 import { RUNG_HINT, RUNG_NAMES } from "../../lib/rung";
 import { useStatus } from "../../state/status";
 import { WINDOW_WORDS, useTime } from "../../state/time";
@@ -103,7 +103,7 @@ export function AgentsTable({ agents, caption = "Agents, by rung", mark, label }
                     )}
                   </Table.Td>
                   <Table.Td num>{a.collects ? "–" : String(a.runs ?? "")}</Table.Td>
-                  <Table.Td className="nowrap muted">{lastText(a)}</Table.Td>
+                  <Table.Td className="nowrap muted">{a.last?.causedby && !a.running_since && !a.collects ? <AppLink to={itemHref(`ergostat.run/${name}/${a.last.causedby}`)} title="its last run">{lastText(a)}</AppLink> : lastText(a)}</Table.Td>
                   <Table.Td className="muted">{a.collects ? "continuously (a daemon)" : a.schedule || a.every || (a.leased ? "on demand, per item (leased)" : a.runs_itself ? "on demand" : a.kind === "person" ? "by a person" : "not run here")}</Table.Td>
                   <Table.Td num className="nowrap" data-use="cost" title={u.cost ? `${u.cost}, over ${u.ai_runs} runs` : ""}>
                     {costText(u, a)}{u.cost && u.cost !== "reported" && <Muted> est.</Muted>}

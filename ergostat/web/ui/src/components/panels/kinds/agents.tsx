@@ -82,6 +82,6 @@ export const AGENTS: Record<string, PanelKind> = {
   "agent-what": agentKind("What an agent is", (a) => RUNG_SECTION[rungOf(a) ?? 5] || "Its law", WhatPart),
   "agent-definition": agentKind("An agent's definition", () => "Its definition", ({ a }) => <Definition a={a} />),
   "agent-place": agentKind("An agent's place", () => "Its place", PlacePart),
-  "agent-runs": agentKind("What an agent did", () => "What it did", ({ a, name }) => <Runs a={a} name={name} />),
+  "agent-runs": agentKind("What an agent did", () => "What it did", ({ a, name, every, refreshKey }) => <Runs a={a} name={name} every={every} refreshKey={refreshKey} />),
   "agent-log": agentKind("An agent's log", (a) => `End of its log${logFile(a) ? `, ${logFile(a)}` : ""}`, ({ a }) => <LogTail a={a} />),
 };

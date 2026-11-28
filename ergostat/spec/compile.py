@@ -1533,6 +1533,8 @@ class Compiler:
         spec.items[INBOX] = inbox_kind()                     # built in: each thing the inbox asked of a person (SPEC §12o)
         if not any(k.matches(f"{SESSION}/x") for k in spec.items.values()):
             spec.items[SESSION] = session_kind()             # built in, unless declared: AI sessions and their transcripts (SPEC §12h)
+        from .runitems import RUN, run_kind
+        spec.items[RUN] = run_kind([k.name for k in spec.items.values() if k.matches(f"{SESSION}/x")][:1])   # every run (§9.1)
         from ..repair import BLOCKS, FAILURE, VERIFY_MAX, VERIFY_MIN, failure_kind
         if BLOCKS[0] in self.doc.sections.get("blocks", {}):
             spec.items[FAILURE] = failure_kind()             # built in, under use: repair: failing runs (SPEC §12r)

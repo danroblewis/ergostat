@@ -1107,6 +1107,9 @@ class ItemKind:
     # its display name (``name:``, a handlers.Value over the folded object's fields): shown, never its identity or
     # address, never folded; None: the key is shown
     display: object = field(default=None, compare=False, metadata={"unset": None})
+    # the field the first part of an id after the kind's own holds (``ergostat.run/<block>/<run>``: ``block``): a
+    # set of its items with ``where`` on it alone is an id range of the index, never every item read (runitems.py)
+    prefix: str | None = None
 
     match = None                   # (the old syntax's; never set)
 

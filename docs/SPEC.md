@@ -5170,6 +5170,40 @@ into its snapshot too), and says "not known yet" while none has ended.
 It reads as an AI agent's when any of the blocks that took it is one (or is no longer in the model), and only those
 blocks' failed or stopped runs count as not known.
 
+**A run is an object** (`ergostat.run`, built in, in every project; `ergostat/spec/runitems.py`). Each run of a machine
+block is an item, `ergostat.run/BLOCK/RUN` (RUN: its `agent.started`'s id), folded from the events every run already
+writes: its `agent.started` (state `running`) and the `agent.ran` or `agent.failed` it caused (`ran`, `failed`). Its
+end event also carries **`said`**: the last five plain lines of the run's own log (its standard error and the lines it
+printed that were not JSON; at most 2,000 characters), what the block says of its own run (`nothing to draft: 0
+requests open`, `4 proposed for 4 requests, $0.08`), read from the tail the engine reads at the run's end anyway. Nothing
+else is written per run. Its fields:
+
+| Field | From |
+|---|---|
+| `block`, `rung`, `trigger`, `item`, `command`, `commanded_by`, `cause`, `model`, `started` | its start: the block, its agent's kind, why it ran (`schedule`, `command`, `event`, `message`, `by hand`, a lease's item), what commanded it, what caused it |
+| `outcome` | `running`, `ran`, `failed`, `timed-out` (failed past its `timeout`), or `stopped` (by the owner, or with ergostat: ran, not a failure) |
+| `ended`, `seconds`, `exit`, `note`, `error` | its end; `error` its note when it failed |
+| `moved` | what it did, in words: `moved 3 along flow.done; 2 events, 4 proposed`, or `moved nothing` (`flows`: the amounts) |
+| `said` | its log's last lines, as above: kept on its end event when its log file is long pruned |
+| `cost_usd`, `cost`, `tokens`, `ai_model`, `cpu`, `memory` | what it cost (the table above) |
+| `log` | its run log (`file:logs/runs/BLOCK/...`), shown while kept (`storage: logs: runs:`) |
+| `sessions` | the AI sessions it started (`session/ROLE-RUN`, each a relation to its item) |
+
+The record holds the events as they are, about the block; the item index reads them as the run's as they arrive (it
+reads them already for the status's newest run of each block), and a run's page reads its two events by its id and by
+what it caused, never a scan. **Volume**: a busy block makes many runs, one row each in the index, like any
+projection's items (finished ones on disk only). They are loose events, never rolled up; a run lives as long as its
+`agent.started` is kept, and goes from the index when the record forgets it (`ergostat compact`, the record's
+`keep`). A block's runs are an id range of the index (`block` is the id's first part), so a list of one block's runs
+(`/api/items?projection=ergostat.run&where=block:NAME&n=25&offset=...`) is counted and paged there, reading only the
+page's rows, however many runs it has.
+
+Where it shows: an agent's page lists its runs (newest first, a page at a time: when, item, outcome, how long, what it
+moved, its outward actions, cost, CPU, memory, what it said), each linking to its run's page (its fields, its said, its
+log while kept, its sessions, its events); the Agents list's "last run" links to the run; a goal stuck on a block whose
+runs produced nothing (section 8) says the last run's `said` and links to that run; `ergostat block NAME --now` prints
+its `said:` and `its run: ergostat.run/NAME/RUN`; and `ergostat item ergostat.run/NAME/RUN` shows it.
+
 ### 9.2 Built-in block types
 
 A first set, kept small:

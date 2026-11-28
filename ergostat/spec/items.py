@@ -101,6 +101,10 @@ def routes(spec: Spec, e: dict) -> list[tuple]:
     """Every (projection, item) event ``e`` folds into (SPEC §5a): each projection that reads it (``match:``), into the
     item its ``key:`` names; ``(None, id)`` when none reads it and it is about an item (an id with a ``/``)."""
     out, read = [], False
+    from .runitems import MARK, RUN
+    if str(e.get("item") or "").startswith(RUN + "/"):     # a run's: only what is derived from its block's events
+        k = (getattr(spec, "items", None) or {}).get(RUN)
+        return [(k, e["item"])] if k is not None and e.get(MARK) else []
     for k in (getattr(spec, "items", None) or {}).values():
         if k.reads(e):
             read = True
@@ -119,6 +123,9 @@ def reads_all(spec: Spec) -> bool:
 
 def events_for(events, k: ItemKind | None, id: str, until: float | None = None, skip=()) -> list[dict]:
     """The events projection ``k`` folds into its item ``id`` (``None``: every event about the id), oldest first."""
+    from .runitems import RUN, events_of
+    if k is not None and k.name == RUN:                      # a run's: derived from its block's events (runitems.py)
+        return events_of(events, id, until)
     if k is None or k.by_item:
         evs = events.query(n=None, item=id, until=until, skip=skip)
         return evs if k is None or (k.query is None and k.handlers is None) else \
@@ -370,6 +377,10 @@ def fold_all(events, spec: Spec, kind: str | None, until: float | None, transcri
         evs = events.query(n=None, until=until, skip=skip)
     else:
         evs = events.of_items([one_k.id] if one_k else None, until=until, skip=skip)
+    from .runitems import RUN, all_of
+    if RUN in (getattr(spec, "items", None) or {}) and (one_k is None or one_k.name == RUN):
+        evs = sorted([e for e in evs if not str(e.get("item") or "").startswith(RUN + "/")] + all_of(events, until),
+                     key=lambda e: e.get("seq") or 0)
     for e in evs:
         for k, key in routes(spec, e):
             if one_k is None or k is one_k:
@@ -439,6 +450,16 @@ def in_states(events, spec: Spec, kind: str, states=None, where: dict | None = N
     return len(got), min((i.entered for i in got), default=None), got
 
 
+def _prefix(k: ItemKind, where: dict) -> str | None:
+    """The id range ``where`` is, when it names only the kind's ``prefix`` field, one text value: ``KIND/VALUE/``."""
+    f = getattr(k, "prefix", None)
+    if not f or set(where) != {f}:
+        return None
+    vals = {v for v in (where[f] if isinstance(where[f], (list, tuple)) else [where[f]]) if isinstance(v, str)}
+    v = vals.pop() if len(vals) == 1 else None
+    return f"{k.name}/{v}/" if v and "/" not in v else None
+
+
 def in_states_page(events, spec: Spec, kind: str, states=None, where: dict | None = None, until: float | None = None,
                    n: int = 500, offset: int = 0) -> tuple[int, list[Item]]:
     """``kind``'s items in ``states`` matching ``where`` as they stood at ``until``, the latest first: how many,
@@ -455,6 +476,10 @@ def in_states_page(events, spec: Spec, kind: str, states=None, where: dict | Non
             late = _late(ix, events, spec, kind, until, transcript)
             if late is not None:
                 extra = [i for i in late.values() if i.kind == kind and (not states or i.state in states) and matches(i, where)]
+                pre = _prefix(k, where)
+                if pre is not None and not extra:            # its id range alone (``ItemKind.prefix``): paged by the index
+                    return (ix.count(kind, states, until, pre=pre),
+                            ix.items(kind, states, until, n=n, offset=offset, moves=False, pre=pre))
                 if not where and not extra:
                     return ix.count(kind, states, until), ix.items(kind, states, until, n=n, offset=offset, moves=False)
                 got = [i for i in ix.items(kind, states, until, moves=False) if matches(i, where)] + extra
