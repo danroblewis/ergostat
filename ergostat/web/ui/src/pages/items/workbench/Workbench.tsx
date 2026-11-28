@@ -47,7 +47,7 @@ export function Workbench({ name, system, text, setText, creating }: {
   const [good, setGood] = useState<D.Draft | null>(null);
   useEffect(() => { if ("draft" in parsed) setGood(parsed.draft); }, [parsed]);
   const draft = "draft" in parsed ? parsed.draft
-    : good ?? { query: "", key: [], time: "", ignore: [], fields: [], kinds: [] };
+    : good ?? { query: "", key: [], name: "", time: "", ignore: [], fields: [], kinds: [] };
   const editable = "draft" in parsed;
   // an edit applies to the text as it is by then: several made at once (kinds mapped the same way) all land
   const change = (f: (t: string) => string) => { if (editable) setText(f); };

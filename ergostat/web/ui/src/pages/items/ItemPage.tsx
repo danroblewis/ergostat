@@ -30,7 +30,8 @@ export default function ItemPage({ id, projection }: { id: string; projection?: 
   const decorate = (d: any) => ({ ...d, onParams,
     ...(d.panel === "item-changes" ? { history: changesOf == null ? undefined : changesOf || "all" } : {}) });
   return (
-    <Page title={id}>
+    <Page title={item.data?.name || id}>
+      {item.data?.name && <p className="muted small item-key" data-testid="item-key">{id}</p>}
       <div className="page-edit">{ed.bar}</div>
       {item.error && !item.data ? (
         <p className="muted">Nothing is recorded about this id.</p>

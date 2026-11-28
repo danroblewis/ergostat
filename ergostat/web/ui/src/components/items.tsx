@@ -121,7 +121,10 @@ export function ItemsTable({ items, show, sort, onSort, caption }: {
       <Table.Body>
         {items.map((i) => (
           <Table.Row key={`${i.projection}:${i.id}`} to={itemHref(i.id, undefined, i.projection)}>
-            <Table.Td className="nowrap"><Link to={itemHref(i.id, undefined, i.projection)} className="plain"><b>{i.id}</b></Link></Table.Td>
+            <Table.Td className="nowrap">
+              <Link to={itemHref(i.id, undefined, i.projection)} className="plain" title={i.name ? i.id : undefined}><b>{i.name || i.id}</b></Link>
+              {i.name && <span className="muted small item-key"> {i.id}</span>}
+            </Table.Td>
             <Table.Td className="nowrap">{i.state || <span className="muted">–</span>}</Table.Td>
             {fields.map((f) => (
               <Table.Td key={f} num={nums.has(f)} className={nums.has(f) ? undefined : "cell"}

@@ -190,13 +190,14 @@ export function ReviewStep({ r, error, busy, onIgnore, editable }: {
     key, and the one shown as its record and its change history (Lifespan). */
 function Objects({ r, item, onItem }: { r: any; item: string; onItem: (k: string) => void }) {
   const keys: string[] = r.objects.keys || r.objects.sample || [];
+  const names: Record<string, string> = r.objects.names || {};      // each one's name (name:), when it has one
   const [find, setFind] = useState("");
   useEffect(() => { if (!item && keys.length) onItem(keys[0]); }, [item, keys.length]);   // eslint-disable-line react-hooks/exhaustive-deps
   const i = keys.indexOf(item);
   const jump = () => {
     const w = find.trim();
     if (!w) return;
-    onItem(keys.includes(w) ? w : keys.find((k) => k.includes(w)) ?? w);
+    onItem(keys.includes(w) ? w : keys.find((k) => k.includes(w) || !!names[k]?.includes(w)) ?? w);
   };
   const t = r.timeline;
   return (
@@ -211,9 +212,10 @@ function Objects({ r, item, onItem }: { r: any; item: string; onItem: (k: string
               onClick={() => onItem(keys[i < 0 ? 0 : i + 1])}>›</button>
             <input className="wb-grow mono" list="wb-objects" value={find} onChange={(e) => setFind(e.target.value)} aria-label="Find an object by its key"
               placeholder="find by key" onKeyDown={(e) => { if (e.key === "Enter") jump(); }} />
-            <datalist id="wb-objects">{keys.slice(0, 200).map((k) => <option key={k} value={k} />)}</datalist>
+            <datalist id="wb-objects">{keys.slice(0, 200).map((k) => <option key={k} value={k} label={names[k]} />)}</datalist>
           </div>
-          {t && t.key === item ? <><p className="small"><code data-testid="object-key">{t.key}</code></p><Lifespan t={t} /></>
+          {t && t.key === item ? <><p className="small">{(t.name || names[t.key]) && <strong data-testid="object-name">{t.name || names[t.key]} </strong>}
+            <code data-testid="object-key">{t.key}</code></p><Lifespan t={t} /></>
             : <p className="muted small">Reading…</p>}
         </>
       )}

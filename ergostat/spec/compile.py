@@ -73,7 +73,7 @@ SENSOR_KEYS = {"run", "query", "manual", "projection", "builtin", "daemon", "jou
                "unit", "description", "averages", "runs-on"}
 ITEM_SENSOR_KEYS = {"state", "entering", "leaving", "where", "over", "measure", "sum"}
 CHANGES = ("rises", "falls", "net", "rest")          # a flow measured from its stock's successive readings (rest: less its other flows)
-ITEM_KEYS = COMMON | {"query", "key", "time", "ignore", "fields", "events", "show", "formats", "lease", "relations", "join", "about", "final",
+ITEM_KEYS = COMMON | {"query", "key", "name", "time", "ignore", "fields", "events", "show", "formats", "lease", "relations", "join", "about", "final",
                       "finished", "lost", "moves-from", "if-unchanged", "attention", "pipeline", "risk-score", "group",
                       "dashboards"}
 STOCK_KEYS = COMMON | {"unit", "limit", "initial", "sensors", "sensor", "cumulative", "inferred", "rate-unit", "observe", "formerly"}
@@ -1081,6 +1081,7 @@ class Compiler:
             self.err(f"{what}.attention: the name of a field (not a relation) whose words, on the latest item that has "
                      f"them, are shown on the attention list", m.at("attention"), "bad-attention")
             attention = None
+        display = self.display_name(m, what, declared)
         pipeline = self.pipeline(m, what, rules)
         risk = self.risk_score(m, what, states) if "risk-score" in m else None
         return ItemKind(name, id, states=list(states), on=moves, show=[str(x) for x in show], formats=formats, pipeline=pipeline,
@@ -1091,7 +1092,34 @@ class Compiler:
                         fold=rules, bounds=bounds, lease=leases.terms(self, m, "lease", what), relations=relations,
                         join=joins.compile_join(self, m, what), about=about, final={s: {} for s in final},
                         finished=list(done), lost=list(lost), moves_from={e: tuple(s) for e, s in only.items()},
-                        if_unchanged=tuple(fenced), attention=attention, group=self.group(m, what))
+                        if_unchanged=tuple(fenced), attention=attention, group=self.group(m, what), display=display)
+
+    def display_name(self, m: Map, what: str, declared: dict):
+        """``name:`` (SPEC §5a, *An object's name*): an expression over the folded object's fields (``tags.Name or
+        instance_id``; ``key`` its key), its display name. None when it writes none, or a bad one (said)."""
+        from .handlers import BadExpr, compile_value
+        raw = m.get("name")
+        if raw is None:
+            return None
+        at = m.at("name") or m.where
+        if not isinstance(raw, str) or not raw.strip():
+            self.err(f"{what}.name: an expression of the object's fields giving its name (tags.Name or instance_id)", at,
+                     "bad-display-name")
+            return None
+        try:
+            v = compile_value(raw, {}, (*declared, "key"))
+        except BadExpr as e:
+            msg = str(e)
+            if " is not a name" in msg:
+                msg = (f"{msg.split(' is not a name')[0]} is not one of its fields: the name reads the object's fields "
+                       f"({', '.join(declared) or 'none yet'}) and its key")
+            self.err(f"{what}.name: {msg}", at, "bad-display-name")
+            return None
+        if v.call is not None:
+            self.err(f"{what}.name: {v.call}() folds a field; the name is a plain expression of the object's fields "
+                     f"(tags.Name or instance_id)", at, "bad-display-name")
+            return None
+        return v
 
     def counted(self, spec: Spec) -> None:
         """Sensors that count items name a projection and its states."""

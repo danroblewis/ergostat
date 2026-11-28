@@ -6,10 +6,10 @@ import { Document, isMap, isScalar, isSeq, parse as parseYaml, parseDocument, ty
 export interface FieldDef { name: string; type: string; values: string; fold: string; description: string }
 export interface KindDef { name: string; when: string; values: [string, string][] }
 /** `key`: the names of the fields that are an object's identity, in order (none: the events' own item). */
-export interface Draft { query: string; key: string[]; time: string; ignore: string[]; fields: FieldDef[]; kinds: KindDef[] }
+export interface Draft { query: string; key: string[]; name: string; time: string; ignore: string[]; fields: FieldDef[]; kinds: KindDef[] }
 
 const OUT = { lineWidth: 0, flowCollectionPadding: false } as const;
-const ORDER = ["query", "key", "time", "ignore", "fields", "events"];
+const ORDER = ["query", "key", "name", "time", "ignore", "fields", "events"];
 
 export const TYPES = ["text", "number", "integer", "boolean", "time", "duration", "map", "list of text"];
 export const FOLDS = ["replace", "first", "add", "min", "max", "append", "union", "merge", "count", "mean", "stdev", "rms"];
@@ -63,7 +63,7 @@ export function read(text: string): { draft: Draft } | { error: string } {
       values: Object.entries(e).filter(([k]) => k !== "when" && k !== "key").map(([k, x]) => [k, said(x)] as [string, string]) };
   });
   const ignore = Array.isArray(o.ignore) ? o.ignore.filter((x: unknown) => typeof x === "string") as string[] : [];
-  return { draft: { query: said(o.query), key: partsOf(o.key), time: said(o.time), ignore, fields, kinds } };
+  return { draft: { query: said(o.query), key: partsOf(o.key), name: said(o.name), time: said(o.time), ignore, fields, kinds } };
 }
 
 // ---- edits: each takes the text and gives it back changed (unchanged when the text does not parse)
@@ -138,8 +138,8 @@ function rename(m: YAMLMap, from: string, to: string, doc: Document) {
   if (p && !pairOf(m, to)) p.key = doc.createNode(to) as any;
 }
 
-/** The query or the time (`time:`). */
-export const setTop = (text: string, k: "query" | "time", v: string) =>
+/** The query, the name (`name:`, an expression of the object's fields) or the time (`time:`). */
+export const setTop = (text: string, k: "query" | "name" | "time", v: string) =>
   edit(text, (doc, top) => put(doc, top, k, v.trim() ? v : "", ORDER));
 
 /** The projection's key, the names of its fields in order: one written as itself, several as a list, none takes the

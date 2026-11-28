@@ -669,6 +669,24 @@ def words(search: str) -> tuple[str, ...]:
     return got
 
 
+NAME_MOST = 200         # an object's display name, cut
+
+
+def display_name(k, it: "Item") -> str | None:
+    """An object's name (SPEC §5a, *An object's name*): its projection's ``name:`` evaluated over its folded fields
+    (``key`` its key). None (the key is shown) when the projection writes none, or for this object it is empty, null,
+    not text or a number, or raises."""
+    v = getattr(k, "display", None) if k is not None else None
+    if v is None:
+        return None
+    from .handlers import evaluate
+    got = evaluate(v, {**(it.fields if isinstance(it.fields, dict) else {}), "key": it.id})
+    if isinstance(got, bool) or not isinstance(got, (str, int, float)):
+        return None
+    got = str(got).strip()
+    return got[:NAME_MOST] or None
+
+
 def kinds_of(spec) -> dict:
     return getattr(spec, "items", None) or {}
 
@@ -852,6 +870,7 @@ def _listed(i: Item, kinds: dict, where: dict | None = None) -> dict:
     d = i.as_dict()
     d["system"] = ((where or {}).get(i.kind or "") or {}).get("system", OTHER)
     k = kinds.get(i.kind or "")
+    d["name"] = display_name(k, i)
     if any(f in d["fields"] for f in FIELDS):
         d["fields"] = {f: v for f, v in d["fields"].items() if f not in FIELDS or (k and f in k.show)}
     return d
@@ -874,6 +893,7 @@ def detail(events, spec, id: str, until: float | None = None, history: int | Non
         return None
     it = fold(id, evs, k, history=True)
     d = it.as_dict(moves=True, history=True)
+    d["name"] = display_name(k, it)
     d["changes"] = {f: len(cs) for f, cs in d["history"].items()}
     if history is not None:
         d["history"] = {f: cs[-history:] for f, cs in d["history"].items()}
@@ -939,8 +959,9 @@ def related(events, spec, it: Item, k) -> dict | None:
     from ..precedence import Kinds, starts, status
     info = Kinds(spec, ix)
     title = lambda x: x.fields.get("title") if isinstance(x.fields.get("title"), str) else ""      # noqa: E731
-    out["items"] = {i: {"projection": x.kind, "state": x.state, "title": title(x), "done": status(x, info[x.kind], []) == "done"}
-                    for i, x in seen.items()}
+    kinds = kinds_of(spec)
+    out["items"] = {i: {"projection": x.kind, "state": x.state, "title": title(x), "name": display_name(kinds.get(x.kind or ""), x),
+                        "done": status(x, info[x.kind], []) == "done"} for i, x in seen.items()}
     prec = {r: rel for r, rel in (k.relations.items() if k else []) if rel.precedence}
     out["waiting"] = [i for r in prec for i in out["out"].get(r, []) if not (out["items"].get(i) or {}).get("done")
                       and not (i in seen and starts(seen[i], prec[r]))]

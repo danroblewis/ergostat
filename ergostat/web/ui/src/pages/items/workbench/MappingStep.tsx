@@ -23,7 +23,7 @@ export interface OpenedIn { o: Opened; live: Live | null; onUsual: () => void }
    value refused, marked in the event) or the key parts a split reads differently are highlighted. */
 
 export interface MappingEdits {
-  setTop: (k: "time", v: string) => void;
+  setTop: (k: "name" | "time", v: string) => void;
   addField: (name: string, type?: string) => void;
   setField: (name: string, part: "type" | "values" | "fold" | "description", v: string) => void;
   renameField: (from: string, to: string) => void;

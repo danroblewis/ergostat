@@ -742,9 +742,15 @@ def review(p, ask: dict) -> dict:
         out["compared"] = compared(p, name, items, since, until)
     if ask.get("expected") is not None:
         out["expected"] = trying.scored(items, ask["expected"])
+    if kind.display is not None:                 # each listed object's name (SPEC §5a, *An object's name*), when it has one
+        from .items import display_name
+        out["objects"]["names"] = {k: nm for k in out["objects"]["keys"] if (nm := display_name(kind, items[k]))}
     if ask.get("item"):
         k = str(ask["item"])
         out["timeline"] = timeline(kind, items.get(k), by_key.get(k) or [], k, took)
+        if kind.display is not None and items.get(k) is not None:
+            from .items import display_name
+            out["timeline"]["name"] = display_name(kind, items[k])
     out["took_s"] = round(time.time() - t0, 3)
     return out
 

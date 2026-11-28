@@ -1053,6 +1053,9 @@ class ItemKind:
     ignore: tuple = ()             # the event's paths known not to matter (``ignore:``): the workbench's, never folded
     functions: dict = field(default_factory=dict, repr=False, compare=False)   # the model's fold functions, by name
     memo: dict = field(default_factory=dict, repr=False, compare=False)        # event id → its kind of event
+    # its display name (``name:``, a handlers.Value over the folded object's fields): shown, never its identity or
+    # address, never folded; None: the key is shown
+    display: object = field(default=None, compare=False, metadata={"unset": None})
 
     match = None                   # (the old syntax's; never set)
 

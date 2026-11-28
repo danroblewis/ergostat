@@ -101,9 +101,35 @@ export function WhatStep({ draft, ed, editable }: { draft: Draft; ed: MappingEdi
  *  (step 0, the schema). */
 export function KeySide({ draft, ed, editable }: { draft: Draft; ed: MappingEdits; editable: boolean }) {
   return (
+    <>
     <section className="wb-keyside" aria-label="Its key">
       <h2 className="small">Its key <span className="muted">the fields that are an object&apos;s identity</span></h2>
       <KeyFields draft={draft} editable={editable} onChange={ed.setKey} />
     </section>
+    <section className="wb-nameside" aria-label="Its name">
+      <NameBox draft={draft} editable={editable} onCommit={(v) => ed.setTop("name", v)} />
+    </section>
+    </>
+  );
+}
+
+/** Its name (`name:`), beside the key: an expression of the object's fields (`tags.Name or instance_id`; `key` its key),
+ *  shown in place of the key; never its identity. The word being typed is completed with the field names. */
+export function NameBox({ draft, editable, onCommit }: { draft: Draft; editable: boolean; onCommit: (v: string) => void }) {
+  const [v, setV] = useState(draft.name);
+  useEffect(() => setV(draft.name), [draft.name]);
+  const done = () => { if (v.trim() !== draft.name.trim()) onCommit(v.trim()); };
+  const m = /^(.*?)([A-Za-z_]\w*)?$/.exec(v)!;
+  const head = m[1], word = m[2] || "";
+  const names = [...draft.fields.map((f) => f.name), "key"].filter((f) => /^[A-Za-z_]\w*$/.test(f));
+  const offered = names.filter((f) => f.startsWith(word) && f !== word && !/[.\]'"]$/.test(head)).map((f) => head + f);
+  return (
+    <label className="wb-namebox small">
+      Its name <span className="muted">shown in place of the key</span>
+      <input className="mono" list="wb-name-fields" value={v} disabled={!editable} spellCheck={false} aria-label="Its name, an expression of its fields"
+        placeholder={names.length > 1 ? `${names[0]} or key` : "key"}
+        onChange={(e) => setV(e.target.value)} onBlur={done} onKeyDown={(e) => { if (e.key === "Enter") done(); }} />
+      <datalist id="wb-name-fields">{offered.slice(0, 50).map((o) => <option key={o} value={o} />)}</datalist>
+    </label>
   );
 }

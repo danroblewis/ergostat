@@ -2305,6 +2305,7 @@ projections:
     # updated 2026-11-27
     query: data.source == 'aws.ec2' and not data.detail.eventName.startswith('Describe')
     key: [account, region, instance_id]   # its fields that are an object's identity: each kind maps them
+    name: tags.Name or instance_id     # what an object is called on the page (its fields'; display only, never its identity)
     time: data.time                    # the event's own time (else the recorded time): the fold is by event time
     ignore: [type, source, data.version]   # paths known not to matter (the workbench's list; the fold never reads it)
 
@@ -2356,6 +2357,7 @@ projections:
 |---|---|---|---|
 | `query` | expression | the implied id | Which events it reads: an expression of the event (*Expressions*, below) that holds for them. Left out, the events whose item matches the projection's implied id (*The implied key*, below). A query that reads by its key's prefix alone (`key.startswith('ticket/')`, `glob(key, 'ticket/*')`) names its items by that glob, as the implied id does; any other reads the record's every event for it. ergostat's own events (`ergostat.*`: a lease, a snapshot, a reopening) are read by the item glob alone |
 | `key` | a field's name, or a list of them | the events' own item | The fields that are an object's identity, in order (`[account, region, instance_id]`; a list is a composite key, its parts joined by `/`): each a declared field (`bad-key` names one that is not), mapped by each kind of event like any other field. Each kind's key is solved from them (*The key*, below). Left out, every event is its own item's (the envelope's `item`, an expression's `key`) |
+| `name` | expression of its fields | the key | An object's display name (`tags.Name or instance_id`): over the folded object's fields and `key`, shown in place of the key, never its identity (*An object's name*, below) |
 | `time` | expression | the recorded time | The event's own time (seconds, or ISO 8601 text): the fold is by it (without it, in the record's order), and an expression's `time` is it |
 | `ignore` | list of paths | none | The event's paths known not to matter (`[type, source, data.version]`, each as the expressions write it; a path ignores all under it): the workbench's list, which hides them in its events and leaves them out of the paths left to decide (*The workbench*, below). The fold never reads it; `check` says `bad-ignore` for anything but a list of paths |
 | `fields` | map of field → `{type, fold, description}` | none | What an object is (*Fields*, below). A field's entry may be its type alone (`name: text`) or nothing (`name:`: any value, replace) |
@@ -2416,6 +2418,24 @@ key field holds its own value (`i-a`, not the list). A key field a kind tells on
 counted under *no key* in the review, by kind, with the fields it does not tell), and `check` says so as a finding
 (`key-not-told`), not an error. An event whose key part reads nothing (null, empty) is no object's. With no `key:`, the
 default, an object is the events' own item (`item` in the envelope), as ergostat's own projections are.
+
+**An object's name** (2026-11-28, the owner's design). `name:` is an expression over the **folded object's fields**,
+not over events: the names in scope are its declared fields (`tags`, `instance_id`, `state`; `tags.Name` reaches into
+a map field) and `key`, the object's key, evaluated by the same allow-listed evaluator (*Expressions*, below; no fold
+call). It is display only: the item list shows it (the key small beside it), the item's page is titled by it (the key
+under the title), a relation's link and the workbench's Samples read it. It is never part of an object's identity or
+address (the key stays both, and two objects may share a name), never folded and never in the item index's cache
+key, so a change to it never folds the record again. For an object whose name is empty, null, not text or a number,
+or raises, the key is shown; the API's item answers (`/api/items`, `/api/items/ID`) carry `name` beside `id`, null
+then. `check` says `bad-display-name` for an expression that does not parse, calls a fold, or names what is not a
+declared field (nor `key`). The workbench's key panel has its box, the word being typed completed with the field names.
+
+```yaml
+projections:
+  instance:
+    key: [account, region, instance_id]
+    name: tags.Name or instance_id
+```
 
 Events in the query's result that no kind takes are **the remainder**: they fold into no object, and the workbench
 shows them, counted and grouped by shape, never silently dropped. A projection that writes no `events:` takes every
